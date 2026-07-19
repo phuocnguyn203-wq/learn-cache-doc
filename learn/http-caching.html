@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HTTP Caching — Cache Docs</title>
+<meta name="description" content="A cache that doesn't even live on your server. Learn how the Cache-Control header tells browsers to reuse a response themselves, in FastAPI.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+  <a href="../index.html" class="brand">
+    <span class="brand-mark">⚡</span>
+    Cache Docs
+  </a>
+  <nav class="header-nav">
+    <a href="../index.html">Home</a>
+    <a href="index.html" class="active">Learn</a>
+    <a href="../guides/index.html">Guides</a>
+  </nav>
+  <div class="header-spacer"></div>
+  <div class="header-search">🔍 Search (coming soon)</div>
+  <a class="gh-link" href="https://github.com/your-username/cache-docs" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-title">Get Started</div>
+      <nav>
+        <a href="../index.html">Overview</a>
+        <a href="index.html">Learn</a>
+      </nav>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-title">Learn Caching</div>
+      <nav>
+        <a href="what-is-caching.html">1. What is Caching?</a>
+        <a href="your-first-cache.html">2. Your First Cache</a>
+        <a href="cache-keys.html">3. Cache Keys</a>
+        <a href="ttl.html">4. TTL &amp; Expiration</a>
+        <a href="eviction.html">5. Eviction</a>
+        <a href="invalidation.html">6. Invalidation</a>
+        <a href="http-caching.html" class="active">7. HTTP Caching</a>
+        <a href="putting-it-together.html">8. Putting It Together</a>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="content-wrap">
+    <main class="content">
+
+      <div class="page-meta">
+        <span class="pill basic">Lesson 7 of 8</span>
+        <span class="read-time">~7 min · hands-on · Python/FastAPI</span>
+      </div>
+      <h1>HTTP Caching</h1>
+      <p class="lede">
+        Every lesson so far built a cache that lives inside our own server's memory. There's a
+        completely different kind of caching that doesn't need our server at all — it happens on the
+        visitor's own browser.
+      </p>
+
+      <h2 id="a-different-layer">A cache with no drawers on our side at all</h2>
+      <p>
+        Imagine, instead of remembering the answer yourself, you write it on a piece of paper and hand
+        it to your friend, saying: <em>"Here — keep this for 30 seconds. Don't bother asking me again
+        until then."</em> Now your friend doesn't need to come back to you at all for a while. That's
+        the idea behind HTTP caching: your server attaches a little note to its response, and the
+        browser (or anything sitting in between, like a CDN) does the remembering.
+      </p>
+
+      <h2 id="the-header">The note is called a header: <code>Cache-Control</code></h2>
+      <p>
+        Every HTTP response carries some extra information alongside the actual data — these are called
+        <strong>headers</strong>. One of them, <code>Cache-Control</code>, is a standardized way of
+        saying "here's how long you're allowed to reuse this response yourself, without asking me again."
+      </p>
+
+      <h2 id="building-it">Adding it to our endpoint</h2>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Ask FastAPI for the response object</h3>
+          <div class="code-block-tight">
+            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-python">from fastapi import FastAPI, Response
+
+@app.get("/weather/{city}")
+def get_weather(city: str, response: Response):
+    ...</code></pre>
+          </div>
+          <p>
+            When you add a parameter typed as <code>Response</code>, FastAPI notices and hands you the
+            outgoing response object to customize — including its headers — before it's sent.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Set the header</h3>
+          <div class="code-block-tight">
+            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-python">response.headers["Cache-Control"] = "public, max-age=30"
+return weather</code></pre>
+          </div>
+          <p>
+            <code>response.headers</code> works just like a dictionary of little notes attached to the
+            response. We're setting one note, made of two comma-separated parts:
+          </p>
+          <ul class="line-notes">
+            <li><code>public</code><span>Anyone is allowed to reuse this response — not just the one browser that asked. This matters for shared caches sitting in between, like a CDN.</span></li>
+            <li><code>max-age=30</code><span>This note is good for 30 seconds, counting from right now.</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <h2 id="full-code">The full endpoint</h2>
+      <p>
+        Notice this version has no internal Python dict at all — HTTP caching is a genuinely separate
+        mechanism from everything in the earlier lessons, and can be used on its own:
+      </p>
+      <div class="code-block-tight">
+        <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-python">import time
+from fastapi import FastAPI, Response
+
+app = FastAPI()
+
+@app.get("/weather/{city}")
+def get_weather(city: str, response: Response):
+    time.sleep(3)  # our server still does the slow work every time
+    weather = {"city": city, "temperature": 24}
+    response.headers["Cache-Control"] = "public, max-age=30"
+    return weather</code></pre>
+      </div>
+      <div class="admonition note">
+        <div class="admonition-title">🧒 Wait — isn't the server still slow?</div>
+        <p>
+          Yes, on <em>our</em> side, every request still takes 3 seconds — this example has no server-side
+          cache. But a real browser that receives this header won't even make the network request again
+          for 30 seconds; it just reuses the copy it already has. Our server's speed didn't change, but
+          the visitor's experience did.
+        </p>
+      </div>
+
+      <h2 id="try-it">Try it yourself</h2>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-bash">curl -i http://localhost:8000/weather/paris</code></pre>
+      </div>
+      <p>Look for this line in the response:</p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">response headers</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-bash">HTTP/1.1 200 OK
+cache-control: public, max-age=30
+content-type: application/json
+
+{"city":"paris","temperature":24}</code></pre>
+      </div>
+      <p>
+        <code>curl</code> itself doesn't act on this header — it isn't a browser, so it always makes a
+        fresh request. Open your browser's dev tools (Network tab) and reload the same URL within 30
+        seconds instead: you'll see the second request served <code>(disk cache)</code> or
+        <code>(memory cache)</code>, with no real network round-trip at all.
+      </p>
+
+      <div class="admonition tip">
+        <div class="admonition-title">💡 There's a bit more to HTTP caching</div>
+        <p>
+          Headers like <code>ETag</code> and <code>Last-Modified</code> let a browser <em>ask</em> "has
+          this changed since I last checked?" and get back a tiny <code>304 Not Modified</code> instead
+          of the full response if it hasn't. Good to know it exists — not something you need in order to
+          move on.
+        </p>
+      </div>
+
+      <h2 id="recap">Recap</h2>
+      <ul>
+        <li>HTTP caching happens outside your server entirely — in the browser, or in something like a CDN sitting in between.</li>
+        <li>The <code>Cache-Control</code> response header is the note that controls it.</li>
+        <li><code>public, max-age=30</code> means "anyone may reuse this for 30 seconds."</li>
+        <li>It's independent of any in-memory cache your code keeps — you can use either, or both together.</li>
+      </ul>
+
+      <div class="next-page">
+        <a href="invalidation.html">
+          <div class="dir">Back</div>
+          <div class="label">← Invalidation</div>
+        </a>
+        <a href="putting-it-together.html" class="next">
+          <div class="dir">Next</div>
+          <div class="label">Putting It Together →</div>
+        </a>
+      </div>
+    </main>
+  </div>
+
+  <aside class="toc">
+    <div class="toc-inner">
+      <div class="toc-title">On this page</div>
+      <div class="toc-links"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="sidebar-backdrop"></div>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="../js/main.js"></script>
+</body>
+</html>

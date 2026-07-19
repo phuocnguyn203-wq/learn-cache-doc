@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eviction — Cache Docs</title>
+<meta name="description" content="A backpack only has so much room. Learn how caches limit their size and decide what to remove, by hand-building a small LRU cache in FastAPI.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+  <a href="../index.html" class="brand">
+    <span class="brand-mark">⚡</span>
+    Cache Docs
+  </a>
+  <nav class="header-nav">
+    <a href="../index.html">Home</a>
+    <a href="index.html" class="active">Learn</a>
+    <a href="../guides/index.html">Guides</a>
+  </nav>
+  <div class="header-spacer"></div>
+  <div class="header-search">🔍 Search (coming soon)</div>
+  <a class="gh-link" href="https://github.com/your-username/cache-docs" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-title">Get Started</div>
+      <nav>
+        <a href="../index.html">Overview</a>
+        <a href="index.html">Learn</a>
+      </nav>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-title">Learn Caching</div>
+      <nav>
+        <a href="what-is-caching.html">1. What is Caching?</a>
+        <a href="your-first-cache.html">2. Your First Cache</a>
+        <a href="cache-keys.html">3. Cache Keys</a>
+        <a href="ttl.html">4. TTL &amp; Expiration</a>
+        <a href="eviction.html" class="active">5. Eviction</a>
+        <a href="invalidation.html">6. Invalidation</a>
+        <a href="http-caching.html">7. HTTP Caching</a>
+        <a href="putting-it-together.html">8. Putting It Together</a>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="content-wrap">
+    <main class="content">
+
+      <div class="page-meta">
+        <span class="pill basic">Lesson 5 of 8</span>
+        <span class="read-time">~10 min · hands-on · Python/FastAPI</span>
+      </div>
+      <h1>Eviction</h1>
+      <p class="lede">
+        A backpack only has so much room. Once it's full, something has to come out before something
+        new can go in. Caches face the exact same problem — and the rule for deciding what comes out
+        is called an <strong>eviction policy</strong>.
+      </p>
+
+      <div class="admonition note">
+        <div class="admonition-title">🧒 Setting TTL aside for a moment</div>
+        <p>To keep this lesson focused on one idea, we'll temporarily drop the TTL code from the last
+        lesson and go back to a simple hit/miss cache. Lesson 8 brings everything back together.</p>
+      </div>
+
+      <h2 id="the-problem">The problem: our cache can grow forever</h2>
+      <p>
+        Every new city-and-units combination gets its own drawer, and none of them are ever removed.
+        If our weather app becomes popular and gets asked about thousands of different cities, our
+        cache keeps growing, drawer after drawer, using more and more of the computer's memory — with
+        no limit. Eventually, that can crash the server.
+      </p>
+
+      <h2 id="the-idea">The idea: a size limit, plus a rule for what to remove</h2>
+      <p>We need two things:</p>
+      <ol>
+        <li>A <strong>maximum number of drawers</strong> the cache is allowed to hold.</li>
+        <li>A <strong>rule</strong> for choosing which drawer to empty out, once we're full and need room for one more.</li>
+      </ol>
+      <p>
+        The most common rule is called <strong>LRU — Least Recently Used</strong>. The idea, in plain
+        words: <em>the drawer nobody has touched in the longest time is the first one to go.</em> It's the
+        same instinct you'd use cleaning out a closet — the toy you haven't touched in months is the one
+        you get rid of first, not the one you played with yesterday.
+      </p>
+
+      <h2 id="ordereddict">The tool: <code>OrderedDict</code></h2>
+      <p>
+        To build this ourselves, we need a box that not only stores labeled drawers, but also remembers
+        the <em>order</em> we last touched them, and lets us both peek at and remove the oldest one on
+        demand. Python's <code>collections.OrderedDict</code> gives us exactly that:
+      </p>
+      <div class="code-block-tight">
+        <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-python">from collections import OrderedDict
+
+cache = OrderedDict()
+MAX_ITEMS = 3</code></pre>
+      </div>
+      <ul class="line-notes">
+        <li><code>from collections import OrderedDict</code><span>Brings in a special dictionary type from Python's standard library that tracks the order its keys were added or last touched.</span></li>
+        <li><code>cache = OrderedDict()</code><span>An empty ordered box — works like a normal dict, plus two extra powers we're about to use.</span></li>
+        <li><code>MAX_ITEMS = 3</code><span>Our size limit — kept tiny here so you can see eviction happen after just a few requests.</span></li>
+      </ul>
+
+      <h2 id="building-it">Building it, step by step</h2>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>On a hit, mark the drawer as "just touched"</h3>
+          <div class="code-block-tight">
+            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-python">if cache_key in cache:
+    cache.move_to_end(cache_key)
+    return cache[cache_key]</code></pre>
+          </div>
+          <p>
+            <code>cache.move_to_end(cache_key)</code> is the first extra power — it slides that drawer to
+            the "most recently used" end of the order. Without this line, the cache would have no way of
+            knowing this drawer was just used, and might evict it even though someone just asked for it.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>On a miss, make room <em>before</em> adding something new</h3>
+          <div class="code-block-tight">
+            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-python">if len(cache) >= MAX_ITEMS:
+    cache.popitem(last=False)  # remove the least recently used drawer</code></pre>
+          </div>
+          <ul class="line-notes">
+            <li><code>len(cache)</code><span>Counts how many drawers currently exist in the box.</span></li>
+            <li><code>if len(cache) >= MAX_ITEMS:</code><span>"Are we already at (or somehow past) our limit?"</span></li>
+            <li><code>cache.popitem(last=False)</code><span>The second extra power — removes and returns one item. <code>last=False</code> means "take it from the front of the order" — the drawer that's gone the longest without being touched.</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <h2 id="full-code">The full endpoint</h2>
+      <div class="code-block-tight">
+        <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-python">import time
+from collections import OrderedDict
+from fastapi import FastAPI
+
+app = FastAPI()
+cache = OrderedDict()
+MAX_ITEMS = 3
+
+@app.get("/weather/{city}")
+def get_weather(city: str, units: str = "celsius"):
+    cache_key = f"{city}:{units}"
+
+    if cache_key in cache:
+        cache.move_to_end(cache_key)
+        return cache[cache_key]
+
+    if len(cache) >= MAX_ITEMS:
+        cache.popitem(last=False)  # evict the least recently used drawer
+
+    time.sleep(3)
+    temperature = 24 if units == "celsius" else 75
+    weather = {"city": city, "temperature": temperature, "units": units}
+    cache[cache_key] = weather
+    return weather</code></pre>
+      </div>
+
+      <h2 id="try-it">Watching it evict, step by step</h2>
+      <p>With <code>MAX_ITEMS = 3</code>, here's what happens as requests come in:</p>
+      <table>
+        <thead><tr><th>Request</th><th>Result</th><th>Order after (oldest → newest)</th></tr></thead>
+        <tbody>
+          <tr><td><code>GET /weather/paris</code></td><td>miss, stored</td><td>paris</td></tr>
+          <tr><td><code>GET /weather/tokyo</code></td><td>miss, stored</td><td>paris, tokyo</td></tr>
+          <tr><td><code>GET /weather/london</code></td><td>miss, stored (now full)</td><td>paris, tokyo, london</td></tr>
+          <tr><td><code>GET /weather/paris</code></td><td><strong>hit</strong> — moved to the end</td><td>tokyo, london, paris</td></tr>
+          <tr><td><code>GET /weather/berlin</code></td><td>miss — full, so <strong>tokyo</strong> is evicted (least recently used)</td><td>london, paris, berlin</td></tr>
+          <tr><td><code>GET /weather/tokyo</code></td><td>miss again — it was evicted, so it's slow once more</td><td>paris, berlin, tokyo</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Notice that <strong>paris</strong> survived the eviction in the second-to-last row, purely because
+        we happened to re-request it right before the cache filled up — that's <code>move_to_end</code>
+        doing its job.
+      </p>
+
+      <div class="admonition tip">
+        <div class="admonition-title">💡 In real projects</div>
+        <p>
+          You now know what's actually happening inside an LRU cache. In production code, most people
+          reach for a tested library instead of hand-rolling this — Python's built-in
+          <code>functools.lru_cache</code> decorator, or the <code>cachetools.LRUCache</code> class, do
+          exactly what we just built, with more edge cases handled. Understanding the mechanism first is
+          what makes those tools make sense instead of feeling like magic.
+        </p>
+      </div>
+
+      <h2 id="recap">Recap</h2>
+      <ul>
+        <li>Without a size limit, a cache can grow forever and eventually exhaust memory.</li>
+        <li><a href="what-is-caching.html#vocabulary">Eviction</a> is the act of removing an entry to make room; the rule for choosing which one is the eviction policy.</li>
+        <li>LRU (Least Recently Used) evicts whichever entry has gone the longest without being accessed.</li>
+        <li><code>OrderedDict</code>'s <code>move_to_end()</code> and <code>popitem(last=False)</code> are enough to hand-build a simple LRU cache.</li>
+      </ul>
+
+      <div class="next-page">
+        <a href="ttl.html">
+          <div class="dir">Back</div>
+          <div class="label">← TTL &amp; Expiration</div>
+        </a>
+        <a href="invalidation.html" class="next">
+          <div class="dir">Next</div>
+          <div class="label">Invalidation →</div>
+        </a>
+      </div>
+    </main>
+  </div>
+
+  <aside class="toc">
+    <div class="toc-inner">
+      <div class="toc-title">On this page</div>
+      <div class="toc-links"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="sidebar-backdrop"></div>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="../js/main.js"></script>
+</body>
+</html>

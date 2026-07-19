@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Putting It All Together — Cache Docs</title>
+<meta name="description" content="Seven small lessons, combined into one complete, realistic FastAPI caching example — with a map showing which lesson taught which lines.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+  <a href="../index.html" class="brand">
+    <span class="brand-mark">⚡</span>
+    Cache Docs
+  </a>
+  <nav class="header-nav">
+    <a href="../index.html">Home</a>
+    <a href="index.html" class="active">Learn</a>
+    <a href="../guides/index.html">Guides</a>
+  </nav>
+  <div class="header-spacer"></div>
+  <div class="header-search">🔍 Search (coming soon)</div>
+  <a class="gh-link" href="https://github.com/your-username/cache-docs" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-title">Get Started</div>
+      <nav>
+        <a href="../index.html">Overview</a>
+        <a href="index.html">Learn</a>
+      </nav>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-title">Learn Caching</div>
+      <nav>
+        <a href="what-is-caching.html">1. What is Caching?</a>
+        <a href="your-first-cache.html">2. Your First Cache</a>
+        <a href="cache-keys.html">3. Cache Keys</a>
+        <a href="ttl.html">4. TTL &amp; Expiration</a>
+        <a href="eviction.html">5. Eviction</a>
+        <a href="invalidation.html">6. Invalidation</a>
+        <a href="http-caching.html">7. HTTP Caching</a>
+        <a href="putting-it-together.html" class="active">8. Putting It Together</a>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="content-wrap">
+    <main class="content">
+
+      <div class="page-meta">
+        <span class="pill basic">Lesson 8 of 8</span>
+        <span class="read-time">~10 min · Python/FastAPI</span>
+      </div>
+      <h1>Putting It All Together</h1>
+      <p class="lede">
+        Seven lessons, seven small pieces, each set aside on its own so it was easy to see clearly.
+        Now let's combine every piece into one complete, realistic file.
+      </p>
+
+      <h2 id="full-file">The complete file</h2>
+      <div class="code-block-tight">
+        <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-python">import time
+from collections import OrderedDict
+from fastapi import FastAPI, Response
+
+app = FastAPI()
+
+cache = OrderedDict()
+TTL_SECONDS = 30
+MAX_ITEMS = 1000
+
+
+def make_cache_key(city: str, units: str) -> str:
+    return f"{city}:{units}"
+
+
+@app.get("/weather/{city}")
+def get_weather(city: str, response: Response, units: str = "celsius"):
+    cache_key = make_cache_key(city, units)
+    entry = cache.get(cache_key)
+
+    if entry:
+        age = time.time() - entry["saved_at"]
+        if age < TTL_SECONDS:
+            cache.move_to_end(cache_key)
+            response.headers["Cache-Control"] = "public, max-age=30"
+            return entry["data"]
+
+    time.sleep(3)  # the slow work: calling the "real" weather service
+    temperature = 24 if units == "celsius" else 75
+    weather = {"city": city, "temperature": temperature, "units": units}
+
+    if len(cache) >= MAX_ITEMS:
+        cache.popitem(last=False)
+    cache[cache_key] = {"data": weather, "saved_at": time.time()}
+
+    response.headers["Cache-Control"] = "public, max-age=30"
+    return weather
+
+
+@app.put("/weather/{city}")
+def correct_weather(city: str, temperature: float, units: str = "celsius"):
+    save_weather_to_database(city, temperature, units)  # update the real record
+
+    cache_key = make_cache_key(city, units)
+    if cache_key in cache:
+        del cache[cache_key]
+
+    return {"status": "updated"}</code></pre>
+      </div>
+      <div class="admonition tip">
+        <div class="admonition-title">💡 One small addition: <code>make_cache_key</code></div>
+        <p>
+          We pulled the key-building logic into its own tiny function. Both endpoints call it, so the
+          <code>GET</code> and <code>PUT</code> paths can never accidentally build the key two different
+          ways — which, as <a href="invalidation.html">Lesson 6</a> warned, would mean invalidation
+          silently clears the wrong drawer (or none at all).
+        </p>
+      </div>
+
+      <h2 id="map">Which lesson taught which part?</h2>
+      <table>
+        <thead><tr><th>Piece of code</th><th>What it does</th><th>Lesson</th></tr></thead>
+        <tbody>
+          <tr><td><code>cache = OrderedDict()</code></td><td>The box itself, plus the ordering LRU needs</td><td><a href="your-first-cache.html">2</a> &amp; <a href="eviction.html">5</a></td></tr>
+          <tr><td><code>make_cache_key(city, units)</code></td><td>One consistent label per unique question</td><td><a href="cache-keys.html">3</a></td></tr>
+          <tr><td><code>entry["saved_at"]</code>, <code>age &lt; TTL_SECONDS</code></td><td>Treating old answers as expired</td><td><a href="ttl.html">4</a></td></tr>
+          <tr><td><code>move_to_end</code>, <code>popitem(last=False)</code>, <code>MAX_ITEMS</code></td><td>Capping memory use with LRU eviction</td><td><a href="eviction.html">5</a></td></tr>
+          <tr><td><code>del cache[cache_key]</code> in <code>correct_weather</code></td><td>Clearing a cached answer the instant it's known wrong</td><td><a href="invalidation.html">6</a></td></tr>
+          <tr><td><code>response.headers["Cache-Control"]</code></td><td>Letting the browser skip asking our server at all</td><td><a href="http-caching.html">7</a></td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="try-it">Try the whole thing</h2>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-bash">curl http://localhost:8000/weather/paris                          # ~3s — miss, cached
+curl http://localhost:8000/weather/paris                          # instant — hit
+
+curl -X PUT "http://localhost:8000/weather/paris?temperature=30"  # correction — cache cleared
+curl http://localhost:8000/weather/paris                          # ~3s again — fresh, corrected value
+
+curl -i http://localhost:8000/weather/paris                       # notice: Cache-Control header present too</code></pre>
+      </div>
+
+      <h2 id="recap">What you now understand</h2>
+      <p>Everything on this page is built from six ideas, each one small enough to hold in your head at once:</p>
+      <ul>
+        <li>A cache is a box you check before doing slow work, and fill in after — <a href="what-is-caching.html">what is caching</a></li>
+        <li>The <strong>key</strong> is the label the box uses to tell one question from another</li>
+        <li>A <strong>TTL</strong> puts an expiration date on a cached answer</li>
+        <li><strong>Eviction</strong> keeps the box from growing forever when it's full</li>
+        <li><strong>Invalidation</strong> clears an answer the instant you know it's wrong, without waiting</li>
+        <li><strong>HTTP caching</strong> lets the browser itself skip asking your server at all</li>
+      </ul>
+
+      <div class="admonition note">
+        <div class="admonition-title">🧭 One honest question left</div>
+        <p>
+          Everything here lives inside one server process. If you ran two or three copies of this app
+          behind a load balancer — completely normal for real traffic — each copy would keep its
+          <em>own</em> separate cache, with its own drawers. Solving that means reaching for a cache
+          that lives outside any single process, shared by every copy of your app — tools like Redis are
+          built for exactly that. It's a genuinely different topic worth learning on its own, once
+          everything on this page feels natural.
+        </p>
+      </div>
+
+      <div class="next-page">
+        <a href="http-caching.html">
+          <div class="dir">Back</div>
+          <div class="label">← HTTP Caching</div>
+        </a>
+        <a href="../index.html" class="next">
+          <div class="dir">Done</div>
+          <div class="label">Back to Home →</div>
+        </a>
+      </div>
+    </main>
+  </div>
+
+  <aside class="toc">
+    <div class="toc-inner">
+      <div class="toc-title">On this page</div>
+      <div class="toc-links"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="sidebar-backdrop"></div>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="../js/main.js"></script>
+</body>
+</html>

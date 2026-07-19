@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redis Caching — Cache Docs</title>
+<meta name="description" content="Production Redis in FastAPI and Express: connection lifecycle, dependency access patterns, the core Redis command API, serialization, and fail-open error handling.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+  <a href="../index.html" class="brand">
+    <span class="brand-mark">⚡</span>
+    Cache Docs
+  </a>
+  <nav class="header-nav">
+    <a href="../index.html">Home</a>
+    <a href="../learn/index.html">Learn</a>
+    <a href="index.html" class="active">Guides</a>
+  </nav>
+  <div class="header-spacer"></div>
+  <div class="header-search">🔍 Search (coming soon)</div>
+  <a class="gh-link" href="https://github.com/your-username/cache-docs" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-title">Get Started</div>
+      <nav>
+        <a href="../index.html">Overview</a>
+        <a href="../learn/index.html">Learn</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-title">Production Guides</div>
+      <nav>
+        <a href="patterns.html">Caching Patterns</a>
+        <a href="redis-caching.html" class="active">Redis Caching</a>
+        <a href="fastapi-cache2.html">Caching Libraries</a>
+        <a href="http-caching-advanced.html">Advanced HTTP Caching</a>
+        <a href="invalidation-at-scale.html">Invalidation at Scale</a>
+        <a href="testing-observability.html">Testing &amp; Observability</a>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="content-wrap">
+    <main class="content">
+
+      <div class="page-meta">
+        <span class="pill basic">Guide</span>
+        <span class="read-time">~16 min · hands-on · FastAPI &amp; Express</span>
+      </div>
+      <h1>Redis Caching</h1>
+      <p class="lede">
+        A single in-process cache stops working the moment you run more than one instance of your
+        app. Redis gives every instance a shared store — this guide covers wiring it into both
+        FastAPI and Express, and goes through the actual Redis command API you'll use day to day,
+        not just one client library's wrapper around it.
+      </p>
+
+      <h2 id="install">Installing</h2>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-bash">pip install redis</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-bash">npm install redis</code></pre>
+        </div>
+      </div>
+      <p>
+        Both examples use each ecosystem's official client — <code>redis-py</code> (imported as
+        <code>redis.asyncio</code> for the async API) and Node's official <code>redis</code> package
+        (v4+, promise-based). Their method names differ in small, consistent ways covered below.
+      </p>
+
+      <h2 id="lifecycle">Managing the connection lifecycle</h2>
+      <p>
+        Open the connection once, when the app starts, and close it once, on shutdown. FastAPI and
+        Express approach this differently — FastAPI has a first-class hook for it; Express has no
+        equivalent, so the convention is simpler and a bit more manual.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">from contextlib import asynccontextmanager
+from fastapi import FastAPI
+import redis.asyncio as redis
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.redis = redis.from_url(
+        "redis://localhost:6379",
+        decode_responses=True,
+        max_connections=20,
+    )
+    yield
+    await app.state.redis.aclose()
+
+app = FastAPI(lifespan=lifespan)</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">const express = require("express");
+const { createClient } = require("redis");
+
+const app = express();
+const redisClient = createClient({ url: "redis://localhost:6379" });
+redisClient.on("error", (err) => console.error("Redis error", err));
+
+async function start() {
+  await redisClient.connect();
+  app.listen(3000, () => console.log("Listening on http://localhost:3000"));
+}
+start();
+
+process.on("SIGTERM", async () => {
+  await redisClient.quit();
+  process.exit(0);
+});</code></pre>
+        </div>
+      </div>
+      <p>
+        FastAPI's <code>lifespan</code> context manager runs its setup code before the app accepts
+        traffic and its teardown code after the app stops accepting it — both guaranteed, in order.
+        Express has no such mechanism: Node apps connect before calling <code>app.listen()</code>, and
+        clean up manually on process signals like <code>SIGTERM</code> — the signal your container
+        orchestrator sends before killing the process, which is what makes a graceful
+        <code>redisClient.quit()</code> possible instead of the connection being dropped mid-request.
+      </p>
+
+      <h2 id="access">Accessing Redis from a request handler</h2>
+      <p>
+        FastAPI's dependency injection system and Express's middleware model solve the same problem —
+        giving a handler access to a shared resource — with genuinely different architectures.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">from fastapi import Depends, Request
+import redis.asyncio as redis
+
+async def get_redis(request: Request) -> redis.Redis:
+    return request.app.state.redis
+
+@app.get("/products/{product_id}")
+async def read_product(product_id: int, r: redis.Redis = Depends(get_redis)):
+    cache_key = f"product:{product_id}"
+    cached = await r.get(cache_key)
+    ...</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">app.use((req, res, next) => {
+  req.redis = redisClient;
+  next();
+});
+
+app.get("/products/:productId", async (req, res) => {
+  const cacheKey = `product:${req.params.productId}`;
+  const cached = await req.redis.get(cacheKey);
+  // ...
+});</code></pre>
+        </div>
+      </div>
+      <p>
+        FastAPI's <code>Depends</code> is a formal system: a dependency is just a callable, and
+        <code>app.dependency_overrides</code> lets tests swap it out cleanly (see
+        <a href="testing-observability.html">Testing &amp; Observability</a>). Express has no built-in
+        equivalent — the idiomatic approach is middleware that attaches a shared resource onto
+        <code>req</code> for every request, or simply importing a module-level client directly where
+        it's needed. Both get Redis into your handler; only one of them is a first-class,
+        override-able dependency system.
+      </p>
+
+      <h2 id="commands">The core Redis commands you'll actually use</h2>
+      <p>
+        Every client library is a thin wrapper around the same underlying Redis command set. Learning
+        the commands themselves — not just one library's method names — is what lets you read Redis's
+        own documentation and move between languages without relearning caching from scratch.
+      </p>
+
+      <h3 id="get-set">Strings: <code>GET</code> / <code>SET</code></h3>
+      <p>
+        <code>SET</code> writes a string value; <code>GET</code> reads it back. <code>EX</code>
+        (expire after N seconds) and <code>NX</code> (only set if the key doesn't already exist) are
+        options on the <code>SET</code> command <em>itself</em>, defined by Redis — every client just
+        exposes them with different calling conventions.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">await r.set("product:1", json.dumps(product), ex=300)
+await r.set("lock:product:1", "1", nx=True, ex=5)
+value = await r.get("product:1")</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">await r.set("product:1", JSON.stringify(product), { EX: 300 });
+await r.set("lock:product:1", "1", { NX: true, EX: 5 });
+const value = await r.get("product:1");</code></pre>
+        </div>
+      </div>
+      <p>Python passes <code>ex</code>/<code>nx</code> as keyword arguments; Node's client takes a single options object whose uppercase keys mirror Redis's own command syntax (<code>SET key value EX seconds NX</code>) almost literally.</p>
+
+      <h3 id="del-exists">Deleting &amp; checking existence: <code>DEL</code> / <code>EXISTS</code></h3>
+      <p>
+        <code>DEL</code> removes a key immediately. <code>EXISTS</code> checks whether a key is
+        present without transferring its value back — cheaper than a <code>GET</code> when a
+        yes/no answer is all you need.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">await r.delete("product:1")
+count = await r.exists("product:1")  # 0 or 1</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">await r.del("product:1");
+const count = await r.exists("product:1"); // 0 or 1</code></pre>
+        </div>
+      </div>
+      <p>Python's method is named <code>delete</code>, since <code>del</code> is a reserved Python keyword; Node's client can use <code>del</code> directly.</p>
+
+      <h3 id="incr">Counters: <code>INCR</code> / <code>INCRBY</code></h3>
+      <p>
+        <code>INCR</code> atomically increments a key treated as an integer. This matters under
+        concurrency: two instances calling <code>INCR</code> on the same key at the same instant never
+        race or lose an update, because Redis executes each command atomically — unlike reading a
+        value, adding one in your own code, then writing it back.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">await r.incr("views:product:1")
+await r.incrby("views:product:1", 5)</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">await r.incr("views:product:1");
+await r.incrBy("views:product:1", 5);</code></pre>
+        </div>
+      </div>
+      <p>Note the pattern that repeats throughout: Python stays snake_case (<code>incrby</code>), Node's client camelCases multi-word commands (<code>incrBy</code>).</p>
+
+      <h3 id="expire-ttl">Expiration: <code>EXPIRE</code> / <code>TTL</code></h3>
+      <p>
+        <code>SET ... EX</code> sets an expiration at write time. <code>EXPIRE</code> attaches (or
+        changes) an expiration on a key that already exists, independent of writing to it.
+        <code>TTL</code> asks Redis how many seconds remain — <code>-1</code> means the key exists but
+        never expires, <code>-2</code> means the key doesn't exist at all.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">await r.expire("product:1", 300)
+seconds_left = await r.ttl("product:1")</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">await r.expire("product:1", 300);
+const secondsLeft = await r.ttl("product:1");</code></pre>
+        </div>
+      </div>
+
+      <h3 id="scan">Iterating keys safely: <code>SCAN</code></h3>
+      <p>
+        <code>KEYS pattern*</code> is tempting but blocks the entire Redis server while it walks the
+        whole keyspace — a real production hazard on a busy instance. <code>SCAN</code> instead walks
+        the keyspace incrementally using a cursor, without blocking other clients. Always prefer it.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">async for key in r.scan_iter(match="views:*"):
+    print(key)</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">for await (const key of r.scanIterator({ MATCH: "views:*" })) {
+  console.log(key);
+}</code></pre>
+        </div>
+      </div>
+      <p>Both wrap Redis's underlying cursor-based <code>SCAN</code> loop into a single iterable, so you never manage the cursor by hand.</p>
+
+      <h3 id="hash">Hashes: <code>HSET</code> / <code>HGETALL</code></h3>
+      <p>
+        A Redis hash stores multiple named fields under one key — a small dict-within-a-key. Useful
+        for grouping related values (a cached payload alongside its own metadata, for instance)
+        without a second round trip or a second key.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">await r.hset("product:1:meta", mapping={"hits": 0, "last_access": time.time()})
+meta = await r.hgetall("product:1:meta")</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">await r.hSet("product:1:meta", { hits: 0, lastAccess: Date.now() });
+const meta = await r.hGetAll("product:1:meta");</code></pre>
+        </div>
+      </div>
+
+      <h2 id="serialization">Serialization: prefer validated shapes over raw dicts</h2>
+      <p>
+        Caching a plain object as JSON works, but throws away type safety on the way back out.
+        FastAPI's ecosystem has a natural answer in Pydantic; Express has no single standard
+        equivalent, so the honest answer differs by ecosystem.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">from pydantic import BaseModel
+
+class Product(BaseModel):
+    id: int
+    name: str
+    price: float
+
+async def get_product(product_id: int, r: redis.Redis) -> Product:
+    cache_key = f"product:{product_id}"
+    cached = await r.get(cache_key)
+    if cached:
+        return Product.model_validate_json(cached)
+
+    product = await db.fetch_product(product_id)
+    await r.set(cache_key, product.model_dump_json(), ex=300)
+    return product</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">async function getProduct(productId, r) {
+  const cacheKey = `product:${productId}`;
+  const cached = await r.get(cacheKey);
+  if (cached) {
+    return JSON.parse(cached);
+  }
+
+  const product = await db.fetchProduct(productId);
+  await r.set(cacheKey, JSON.stringify(product), { EX: 300 });
+  return product;
+}</code></pre>
+        </div>
+      </div>
+      <p>
+        <code>Product.model_validate_json(...)</code> gives you <em>runtime</em> validation on the way
+        out of the cache — if the stored shape ever drifts from what <code>Product</code> expects, it
+        raises instead of silently returning a malformed object. Plain <code>JSON.parse</code> gives no
+        such guarantee; if that matters for your data, pair it with a runtime schema library like
+        <code>zod</code> rather than trusting the cached JSON blindly.
+      </p>
+
+      <h2 id="fail-open">Fail open: don't let Redis become a single point of failure</h2>
+      <p>A cache is an optimization, not a correctness requirement. A Redis blip should slow your endpoint down, not take it down.</p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">async def get_product(product_id: int, r: redis.Redis) -> Product:
+    cache_key = f"product:{product_id}"
+
+    try:
+        cached = await r.get(cache_key)
+    except redis.RedisError:
+        cached = None  # fail open — treat a down cache as a miss
+
+    if cached:
+        return Product.model_validate_json(cached)
+
+    product = await db.fetch_product(product_id)
+
+    try:
+        await r.set(cache_key, product.model_dump_json(), ex=300)
+    except redis.RedisError:
+        pass  # best-effort — losing this write is fine, the database is still correct
+
+    return product</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">async function getProduct(productId, r) {
+  const cacheKey = `product:${productId}`;
+
+  let cached = null;
+  try {
+    cached = await r.get(cacheKey);
+  } catch (err) {
+    cached = null; // fail open — treat a down cache as a miss
+  }
+
+  if (cached) return JSON.parse(cached);
+
+  const product = await db.fetchProduct(productId);
+
+  try {
+    await r.set(cacheKey, JSON.stringify(product), { EX: 300 });
+  } catch (err) {
+    // best-effort — losing this write is fine, the database is still correct
+  }
+
+  return product;
+}</code></pre>
+        </div>
+      </div>
+      <div class="admonition tip">
+        <div class="admonition-title">💡 "Fail open" vs. "fail closed"</div>
+        <p>
+          <strong>Fail open</strong> means treating a cache error as a miss and continuing to serve
+          from the source of truth — the right default here, since the cache is never the only copy
+          of the data. <strong>Fail closed</strong> means rejecting the request outright on a
+          backing-store error — the right default for something like a Redis-backed rate limiter,
+          where "fail open" would silently disable the safeguard.
+        </p>
+      </div>
+
+      <h2 id="resilience">Connection resilience</h2>
+      <p>A slow or unreachable Redis shouldn't hang a request indefinitely. Bound how long each client will wait, and control how it retries.</p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">redis.from_url(
+    "redis://localhost:6379",
+    decode_responses=True,
+    socket_connect_timeout=2,   # seconds to establish a connection
+    socket_timeout=2,           # seconds to wait for a command's response
+    retry_on_timeout=True,
+)</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">createClient({
+  url: "redis://localhost:6379",
+  socket: {
+    connectTimeout: 2000, // ms to establish a connection
+    reconnectStrategy: (retries) => Math.min(retries * 100, 2000),
+  },
+});</code></pre>
+        </div>
+      </div>
+      <p>
+        Python exposes a simple boolean (<code>retry_on_timeout</code>) plus flat timeout options.
+        Node's client instead takes a custom <code>reconnectStrategy</code> function, called after
+        each failed attempt, returning how many milliseconds to wait before the next one — more code,
+        but more control over backoff shape. Combined with fail-open above, a stuck Redis degrades
+        latency, not availability.
+      </p>
+
+      <h2 id="recap">Recap</h2>
+      <ul>
+        <li>FastAPI manages the connection via <code>lifespan</code>; Express connects before <code>listen()</code> and cleans up on process signals.</li>
+        <li>FastAPI exposes Redis through a formal, overridable dependency; Express approximates it with middleware or a shared module.</li>
+        <li><code>EX</code>/<code>NX</code> are Redis-level <code>SET</code> options, not client inventions — every language just calls them differently.</li>
+        <li>Prefer <code>SCAN</code> over <code>KEYS</code> in anything touching production.</li>
+        <li>Wrap cache reads and writes so a Redis outage degrades performance instead of availability.</li>
+      </ul>
+
+      <div class="next-page">
+        <a href="patterns.html">
+          <div class="dir">Back</div>
+          <div class="label">← Caching Patterns</div>
+        </a>
+        <a href="fastapi-cache2.html" class="next">
+          <div class="dir">Next</div>
+          <div class="label">Caching Libraries →</div>
+        </a>
+      </div>
+    </main>
+  </div>
+
+  <aside class="toc">
+    <div class="toc-inner">
+      <div class="toc-title">On this page</div>
+      <div class="toc-links"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="sidebar-backdrop"></div>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="../js/main.js"></script>
+</body>
+</html>

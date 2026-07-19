@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invalidation — Cache Docs</title>
+<meta name="description" content="TTL alone isn't always fast enough. Learn how to deliberately clear a cached answer the moment you know it's wrong, in FastAPI.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+  <a href="../index.html" class="brand">
+    <span class="brand-mark">⚡</span>
+    Cache Docs
+  </a>
+  <nav class="header-nav">
+    <a href="../index.html">Home</a>
+    <a href="index.html" class="active">Learn</a>
+    <a href="../guides/index.html">Guides</a>
+  </nav>
+  <div class="header-spacer"></div>
+  <div class="header-search">🔍 Search (coming soon)</div>
+  <a class="gh-link" href="https://github.com/your-username/cache-docs" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-title">Get Started</div>
+      <nav>
+        <a href="../index.html">Overview</a>
+        <a href="index.html">Learn</a>
+      </nav>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-title">Learn Caching</div>
+      <nav>
+        <a href="what-is-caching.html">1. What is Caching?</a>
+        <a href="your-first-cache.html">2. Your First Cache</a>
+        <a href="cache-keys.html">3. Cache Keys</a>
+        <a href="ttl.html">4. TTL &amp; Expiration</a>
+        <a href="eviction.html">5. Eviction</a>
+        <a href="invalidation.html" class="active">6. Invalidation</a>
+        <a href="http-caching.html">7. HTTP Caching</a>
+        <a href="putting-it-together.html">8. Putting It Together</a>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="content-wrap">
+    <main class="content">
+
+      <div class="page-meta">
+        <span class="pill basic">Lesson 6 of 8</span>
+        <span class="read-time">~8 min · hands-on · Python/FastAPI</span>
+      </div>
+      <h1>Invalidation</h1>
+      <p class="lede">
+        If your mom tells you dinner is at 6, you write it on a sticky note. If plans change to 7, you
+        don't wait for the sticky note to fall off the fridge by itself — you take it down and fix it
+        right now. That's invalidation.
+      </p>
+
+      <div class="admonition note">
+        <div class="admonition-title">🧒 Setting eviction aside for a moment</div>
+        <p>To keep this lesson focused, we'll go back to the plain dict cache from <a href="cache-keys.html">Lesson 3</a>, without the size limit from Lesson 5. Lesson 8 brings everything back together.</p>
+      </div>
+
+      <h2 id="the-problem">The problem TTL doesn't fully solve</h2>
+      <p>
+        In <a href="ttl.html">Lesson 4</a>, we gave every cached answer a shelf life — after, say, 10
+        seconds, it's treated as expired. That handles data that goes stale <em>gradually</em>. But what
+        about the moment you <strong>know for a fact</strong> the cached answer is now wrong — say, an
+        admin manually corrects a reading? With only a TTL, everyone could keep seeing the old, wrong
+        value for up to the rest of that 10-second window, even though you already know better.
+      </p>
+
+      <h2 id="the-idea">The idea: clear the drawer the instant you know it's wrong</h2>
+      <p>
+        Instead of waiting for time to pass, we reach into the cache ourselves and remove the entry the
+        moment the real data changes — at the exact same time we update the real data.
+      </p>
+
+      <h2 id="building-it">Building it, step by step</h2>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Add a way to correct the data</h3>
+          <p>Let's add an endpoint that lets an admin manually fix a city's temperature:</p>
+          <div class="code-block-tight">
+            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-python">@app.put("/weather/{city}")
+def correct_weather(city: str, temperature: float, units: str = "celsius"):
+    save_weather_to_database(city, temperature, units)  # pretend this updates the real record
+    ...</code></pre>
+          </div>
+          <ul class="line-notes">
+            <li><code>@app.put(...)</code><span>A different decorator from <code>@app.get</code>. By convention, <code>GET</code> means "give me information," while <code>PUT</code> means "here's a correction — save it." Same idea as before, different intention.</span></li>
+            <li><code>temperature: float</code><span>A new input, this time a decimal number (<code>float</code>) instead of text, coming from whoever calls this endpoint.</span></li>
+            <li><code>save_weather_to_database(...)</code><span>Stands in for wherever your <em>real</em>, permanent data lives — a database, in a real app. This line updates the source of truth.</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Forget the cached answer for this exact key</h3>
+          <div class="code-block-tight">
+            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-python">cache_key = f"{city}:{units}"
+if cache_key in cache:
+    del cache[cache_key]
+
+return {"status": "updated"}</code></pre>
+          </div>
+          <ul class="line-notes">
+            <li><code>cache_key = f"{city}:{units}"</code><span>The exact same key-building logic from <a href="cache-keys.html">Lesson 3</a> — we need to target the same drawer the read endpoint would look for.</span></li>
+            <li><code>if cache_key in cache:</code><span>Checks the drawer exists before touching it.</span></li>
+            <li><code>del cache[cache_key]</code><span><code>del</code> throws the whole drawer away — both its label and its contents. We check first because calling <code>del</code> on a label that doesn't exist would crash the program with an error.</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <h2 id="full-code">The full file</h2>
+      <div class="code-block-tight">
+        <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-python">import time
+from fastapi import FastAPI
+
+app = FastAPI()
+cache = {}
+
+@app.get("/weather/{city}")
+def get_weather(city: str, units: str = "celsius"):
+    cache_key = f"{city}:{units}"
+
+    if cache_key in cache:
+        return cache[cache_key]
+
+    time.sleep(3)
+    temperature = 24 if units == "celsius" else 75
+    weather = {"city": city, "temperature": temperature, "units": units}
+    cache[cache_key] = weather
+    return weather
+
+@app.put("/weather/{city}")
+def correct_weather(city: str, temperature: float, units: str = "celsius"):
+    save_weather_to_database(city, temperature, units)
+
+    cache_key = f"{city}:{units}"
+    if cache_key in cache:
+        del cache[cache_key]
+
+    return {"status": "updated"}</code></pre>
+      </div>
+
+      <h2 id="try-it">Try it yourself</h2>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-bash">curl http://localhost:8000/weather/paris        # ~3s, temperature: 24 (miss, then stored)
+curl http://localhost:8000/weather/paris        # instant, temperature: 24 (hit)
+
+curl -X PUT "http://localhost:8000/weather/paris?temperature=30"
+# {"status": "updated"} — and the drawer for paris:celsius is now gone
+
+curl http://localhost:8000/weather/paris        # ~3s again — cache miss, fetches the corrected value</code></pre>
+      </div>
+      <p>The correction takes effect on the very next read — no waiting around for a TTL to run out.</p>
+
+      <h2 id="delete-vs-update">Delete vs. update</h2>
+      <p>
+        We chose to <em>delete</em> the entry and let the next read repopulate it. An alternative is to
+        immediately <em>overwrite</em> the cache with the corrected value, right there in the same endpoint:
+      </p>
+      <div class="code-block-tight">
+        <div class="code-block-header"><span class="code-filename">alternative to `del`</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-python">cache[cache_key] = {"city": city, "temperature": temperature, "units": units}</code></pre>
+      </div>
+      <p>
+        Deleting is simpler and always safe. Overwriting avoids one extra slow "miss" on the very next
+        read, at the cost of having to carefully reconstruct the exact same shape the read endpoint
+        expects — get that shape wrong and you'll cache a broken value instead of a missing one.
+      </p>
+
+      <h2 id="recap">Recap</h2>
+      <ul>
+        <li><a href="what-is-caching.html#vocabulary">Invalidation</a> means deliberately removing (or refreshing) a cached value the moment you know it's outdated, instead of waiting for a TTL.</li>
+        <li>The most common trigger is "whenever the real data is written, touch the cache too."</li>
+        <li><code>del cache[key]</code> is the simplest form of invalidation — clear it and let the next read rebuild it.</li>
+        <li>Always target invalidation using the <strong>same key-building logic</strong> as the read path, or you'll clear the wrong drawer (or none at all).</li>
+      </ul>
+
+      <div class="next-page">
+        <a href="eviction.html">
+          <div class="dir">Back</div>
+          <div class="label">← Eviction</div>
+        </a>
+        <a href="http-caching.html" class="next">
+          <div class="dir">Next</div>
+          <div class="label">HTTP Caching →</div>
+        </a>
+      </div>
+    </main>
+  </div>
+
+  <aside class="toc">
+    <div class="toc-inner">
+      <div class="toc-title">On this page</div>
+      <div class="toc-links"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="sidebar-backdrop"></div>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="../js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Advanced HTTP Caching — Cache Docs</title>
+<meta name="description" content="ETag and conditional requests, Last-Modified, the Vary header, stale-while-revalidate, and CDN edge caching, with FastAPI and Express examples.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+  <a href="../index.html" class="brand">
+    <span class="brand-mark">⚡</span>
+    Cache Docs
+  </a>
+  <nav class="header-nav">
+    <a href="../index.html">Home</a>
+    <a href="../learn/index.html">Learn</a>
+    <a href="index.html" class="active">Guides</a>
+  </nav>
+  <div class="header-spacer"></div>
+  <div class="header-search">🔍 Search (coming soon)</div>
+  <a class="gh-link" href="https://github.com/your-username/cache-docs" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-title">Get Started</div>
+      <nav>
+        <a href="../index.html">Overview</a>
+        <a href="../learn/index.html">Learn</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-title">Production Guides</div>
+      <nav>
+        <a href="patterns.html">Caching Patterns</a>
+        <a href="redis-caching.html">Redis Caching</a>
+        <a href="fastapi-cache2.html">Caching Libraries</a>
+        <a href="http-caching-advanced.html" class="active">Advanced HTTP Caching</a>
+        <a href="invalidation-at-scale.html">Invalidation at Scale</a>
+        <a href="testing-observability.html">Testing &amp; Observability</a>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="content-wrap">
+    <main class="content">
+
+      <div class="page-meta">
+        <span class="pill basic">Guide</span>
+        <span class="read-time">~11 min · hands-on · FastAPI &amp; Express</span>
+      </div>
+      <h1>Advanced HTTP Caching</h1>
+      <p class="lede">
+        <a href="../learn/http-caching.html">Cache-Control and max-age</a> get you a flat expiration
+        window. Production HTTP caching goes further: conditional requests, per-response variation,
+        and background revalidation — the mechanisms browsers and CDNs actually rely on.
+      </p>
+
+      <h2 id="etag">Conditional requests with ETag</h2>
+      <p>
+        An <code>ETag</code> is a fingerprint of the response body. A client that has a cached copy
+        sends it back via <code>If-None-Match</code>; if it still matches, the server returns an empty
+        <code>304 Not Modified</code> instead of the full payload — saving bandwidth even after the
+        cached copy's freshness window has technically expired.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">import hashlib
+import json
+from fastapi import FastAPI, Request, Response
+
+app = FastAPI()
+
+@app.get("/products/{product_id}")
+async def read_product(product_id: int, request: Request, response: Response):
+    product = await fetch_product(product_id)
+    body = json.dumps(product, sort_keys=True)
+    etag = hashlib.md5(body.encode()).hexdigest()
+
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304)
+
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "public, max-age=60, must-revalidate"
+    return product</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">const crypto = require("crypto");
+
+app.get("/products/:productId", async (req, res) => {
+  const product = await fetchProduct(Number(req.params.productId));
+  const body = JSON.stringify(product);
+  const etag = crypto.createHash("md5").update(body).digest("hex");
+
+  if (req.headers["if-none-match"] === etag) {
+    return res.status(304).end();
+  }
+
+  res.set("ETag", etag);
+  res.set("Cache-Control", "public, max-age=60, must-revalidate");
+  res.json(product);
+});</code></pre>
+        </div>
+      </div>
+      <p>
+        Node's built-in <code>crypto</code> module stands in for Python's <code>hashlib</code> — same
+        idea, different standard library. Note also how each framework exposes request headers:
+        Starlette/FastAPI's <code>request.headers</code> is a case-insensitive mapping with a
+        <code>.get(...)</code> method; Express's <code>req.headers</code> is a plain object whose keys
+        Express has already lowercased for you, so <code>req.headers["if-none-match"]</code> works
+        regardless of how the client capitalized it.
+      </p>
+      <p>
+        <code>must-revalidate</code> tells the cache: once <code>max-age</code> expires, don't keep
+        using this stale copy — go back and check (via the conditional request above) before serving
+        it again.
+      </p>
+
+      <h2 id="last-modified">An alternative validator: Last-Modified</h2>
+      <p>
+        Hashing a full response body costs CPU. If you already track when a resource last changed,
+        a timestamp is a cheaper validator — at the cost of only second-level precision:
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">from email.utils import format_datetime, parsedate_to_datetime
+
+@app.get("/products/{product_id}")
+async def read_product(product_id: int, request: Request, response: Response):
+    product, last_modified = await fetch_product_with_timestamp(product_id)
+
+    if_modified_since = request.headers.get("if-modified-since")
+    if if_modified_since and last_modified <= parsedate_to_datetime(if_modified_since):
+        return Response(status_code=304)
+
+    response.headers["Last-Modified"] = format_datetime(last_modified, usegmt=True)
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return product</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">app.get("/products/:productId", async (req, res) => {
+  const { product, lastModified } = await fetchProductWithTimestamp(Number(req.params.productId));
+
+  const ifModifiedSince = req.headers["if-modified-since"];
+  if (ifModifiedSince && lastModified <= new Date(ifModifiedSince)) {
+    return res.status(304).end();
+  }
+
+  res.set("Last-Modified", lastModified.toUTCString());
+  res.set("Cache-Control", "public, max-age=60");
+  res.json(product);
+});</code></pre>
+        </div>
+      </div>
+      <p>
+        A pleasant asymmetry here: JavaScript's built-in <code>Date.prototype.toUTCString()</code>
+        already produces the exact RFC 7231 HTTP-date format this header requires — no extra library
+        needed. Python needs <code>email.utils.format_datetime(..., usegmt=True)</code> to get the same
+        result.
+      </p>
+
+      <h2 id="vary">The <code>Vary</code> header: telling caches a response isn't one-size-fits-all</h2>
+      <p>
+        If a response differs based on a request header — <code>Accept-Language</code>,
+        <code>Authorization</code>, a custom feature-flag header — a cache needs to know that, or it
+        will serve one cached copy to everyone regardless of their own request.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">response.headers["Vary"] = "Accept-Language, Authorization"</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">res.set("Vary", "Accept-Language, Authorization");</code></pre>
+        </div>
+      </div>
+      <div class="admonition warning">
+        <div class="admonition-title">⚠️ A real failure mode without it</div>
+        <p>
+          A shared or CDN cache stores the English response for <code>/products/1</code>. Without
+          <code>Vary: Accept-Language</code>, the next request — from a browser asking for French — gets
+          served the cached English body, because as far as the cache knows, there's only one
+          <code>/products/1</code> response. This is exactly the <a href="../learn/cache-keys.html">cache
+          key</a> problem from Learn, just one layer further out, in a cache you don't control directly.
+        </p>
+      </div>
+
+      <h2 id="swr">stale-while-revalidate: never block on a refresh</h2>
+      <p>
+        A modern <code>Cache-Control</code> extension: serve the stale copy immediately while
+        refreshing it in the background, instead of making the user wait for a fresh fetch.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=30"</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=30");</code></pre>
+        </div>
+      </div>
+      <p>
+        Within the first 60 seconds, serve fresh from cache. For the next 30 seconds after that, the
+        cache serves the stale copy immediately <em>and</em> triggers a revalidation in the
+        background, so the following request gets a fresh one. After 90 seconds total, a request must
+        wait for a real fetch. Support for this directive varies across browsers and CDNs — check
+        your specific CDN's documentation before relying on it.
+      </p>
+
+      <h2 id="cdn">CDN edge caching: <code>s-maxage</code> and purging</h2>
+      <p>
+        <code>s-maxage</code> works like <code>max-age</code>, but applies only to shared caches
+        (CDNs, reverse proxies) — letting you set a different freshness window for the edge than for
+        individual browsers:
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">response.headers["Cache-Control"] = "public, max-age=0, s-maxage=3600"</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">res.set("Cache-Control", "public, max-age=0, s-maxage=3600");</code></pre>
+        </div>
+      </div>
+      <p>
+        This says: browsers should revalidate every time, but the CDN can hold this response for an
+        hour — a common pattern that lets the edge absorb the bulk of traffic while browsers still
+        always check in.
+      </p>
+      <div class="admonition note">
+        <div class="admonition-title">📎 Purging is a separate mechanism</div>
+        <p>
+          Your origin server has no way to reach into a CDN's cache and remove an entry directly —
+          each CDN exposes its own purge API for that (Cloudflare, Fastly, and CloudFront all differ).
+          If your data can change out-of-band and needs to invalidate CDN-cached copies immediately,
+          you need to call that API explicitly; TTL expiration alone won't do it in time.
+        </p>
+      </div>
+
+      <h2 id="recap">Recap</h2>
+      <ul>
+        <li><code>ETag</code>/<code>If-None-Match</code> and <code>Last-Modified</code>/<code>If-Modified-Since</code> let a cache revalidate cheaply via a <code>304</code> instead of re-downloading the full response.</li>
+        <li>Express lowercases request header keys for you; FastAPI's headers object is case-insensitive via its own <code>.get()</code>.</li>
+        <li><code>Vary</code> tells caches a response differs by request header — omit it and you risk serving the wrong variant to the wrong client.</li>
+        <li><code>stale-while-revalidate</code> serves stale content immediately while refreshing in the background.</li>
+        <li><code>s-maxage</code> lets CDNs cache longer (or differently) than browsers do; purging is a separate, CDN-specific API call.</li>
+      </ul>
+
+      <div class="next-page">
+        <a href="fastapi-cache2.html">
+          <div class="dir">Back</div>
+          <div class="label">← Caching Libraries</div>
+        </a>
+        <a href="invalidation-at-scale.html" class="next">
+          <div class="dir">Next</div>
+          <div class="label">Invalidation at Scale →</div>
+        </a>
+      </div>
+    </main>
+  </div>
+
+  <aside class="toc">
+    <div class="toc-inner">
+      <div class="toc-title">On this page</div>
+      <div class="toc-links"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="sidebar-backdrop"></div>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="../js/main.js"></script>
+</body>
+</html>

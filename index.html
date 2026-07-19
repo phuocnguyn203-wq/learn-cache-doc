@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cache Docs — Learn Caching for Web Developers</title>
+<meta name="description" content="A friendly, hands-on guide to caching, built from zero — eight short lessons, each explaining its FastAPI (Python) code line by line.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+  <a href="index.html" class="brand">
+    <span class="brand-mark">⚡</span>
+    Cache Docs
+  </a>
+  <nav class="header-nav">
+    <a href="index.html" class="active">Home</a>
+    <a href="learn/index.html">Learn</a>
+    <a href="guides/index.html">Guides</a>
+  </nav>
+  <div class="header-spacer"></div>
+  <div class="header-search">🔍 Search (coming soon)</div>
+  <a class="gh-link" href="https://github.com/your-username/cache-docs" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<div class="layout no-sidebar">
+  <div class="content-wrap">
+    <main class="content" style="max-width:980px;">
+
+      <section class="hero">
+        <span class="hero-badge">Docs · Beginner friendly</span>
+        <h1>Learn <span>caching</span>,<br>one honest analogy at a time.</h1>
+        <p class="hero-lede">
+          Never touched caching before? Good — that's the assumption this guide starts from. Eight short
+          lessons build it up one small idea at a time, in plain <strong>FastAPI (Python)</strong>, with
+          every single line of code explained.
+        </p>
+        <div class="hero-ctas">
+          <a href="learn/index.html" class="btn btn-primary">Start Learning →</a>
+          <a href="learn/what-is-caching.html" class="btn btn-ghost">What even is caching?</a>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">Why bother caching?</h2>
+        <p class="section-sub">Because doing the same expensive work over and over is a waste — of time, of money, and of your server's patience.</p>
+        <div class="feature-grid">
+          <div class="feature">
+            <span class="card-icon">⚡</span>
+            <h3>Faster responses</h3>
+            <p>Serve a stored answer in microseconds instead of redoing a slow computation or database query every single time.</p>
+          </div>
+          <div class="feature">
+            <span class="card-icon">💸</span>
+            <h3>Lower cost</h3>
+            <p>Fewer database hits and fewer calls to paid third-party APIs means smaller infrastructure bills.</p>
+          </div>
+          <div class="feature">
+            <span class="card-icon">📈</span>
+            <h3>Handles more traffic</h3>
+            <p>A cache absorbs repeated requests so your database or upstream service doesn't fall over during a spike.</p>
+          </div>
+          <div class="feature">
+            <span class="card-icon">🙂</span>
+            <h3>Happier users</h3>
+            <p>Nobody enjoys a spinner. Caching is one of the highest-leverage ways to make an app feel instant.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">What you'll learn</h2>
+        <p class="section-sub">Eight small stops. Each one adds exactly one new idea on top of the last.</p>
+        <div class="card-grid">
+          <a class="card" href="learn/what-is-caching.html">
+            <span class="pill intro">1</span>
+            <h3>What is Caching?</h3>
+            <p>Plain-English explanation, analogies, and the vocabulary you need before writing any code.</p>
+          </a>
+          <a class="card" href="learn/your-first-cache.html">
+            <span class="pill basic">2</span>
+            <h3>Your First Cache</h3>
+            <p>Build a slow endpoint, then speed it up with a plain Python dictionary — every line explained.</p>
+          </a>
+          <a class="card" href="learn/cache-keys.html">
+            <span class="pill basic">3</span>
+            <h3>Cache Keys</h3>
+            <p>Watch a real bug happen from a bad cache key, then learn to fix it.</p>
+          </a>
+          <a class="card" href="learn/putting-it-together.html">
+            <span class="pill basic">8</span>
+            <h3>Putting It Together</h3>
+            <p>Every piece combined into one complete, realistic FastAPI file.</p>
+          </a>
+        </div>
+        <div style="text-align:center; margin-top:8px;">
+          <a href="learn/index.html">See the full lesson list →</a>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">Every line, explained</h2>
+        <p class="section-sub">No black boxes. Each lesson builds its code up piece by piece, in plain FastAPI.</p>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-filename">main.py</span>
+            <button class="copy-btn">Copy</button>
+          </div>
+          <pre><code class="language-python">cache = {}
+
+@app.get("/weather/{city}")
+def get_weather(city: str):
+    if city in cache:
+        return cache[city]  # cache hit — skip the slow work
+
+    time.sleep(3)  # pretend this is a slow call to a weather service
+    weather = {"city": city, "temperature": 24}
+    cache[city] = weather  # cache miss — save it for next time
+    return weather</code></pre>
+        </div>
+
+        <div class="stack-badges">
+          <span class="stack-badge">🐍 FastAPI</span>
+          <span class="stack-badge">🧠 In-memory caching</span>
+          <span class="stack-badge">⏳ TTL</span>
+          <span class="stack-badge">🌐 HTTP cache headers</span>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">Ready for production?</h2>
+        <p class="section-sub">Once the fundamentals click, <a href="guides/index.html">Guides</a> picks up where Learn leaves off — real libraries, standard terminology, and the trade-offs a professional team weighs when caching ships to production. Every guide covers both <strong>FastAPI</strong> and <strong>Express</strong>.</p>
+        <div class="card-grid">
+          <a class="card" href="guides/patterns.html">
+            <span class="pill basic">Patterns</span>
+            <h3>Caching Patterns</h3>
+            <p>Cache-Aside, Read-Through, Write-Through, Write-Behind — formal definitions and trade-offs.</p>
+          </a>
+          <a class="card" href="guides/redis-caching.html">
+            <span class="pill basic">Redis</span>
+            <h3>Redis Caching</h3>
+            <p>Connection lifecycle, the core Redis command API, and fail-open error handling.</p>
+          </a>
+          <a class="card" href="guides/invalidation-at-scale.html">
+            <span class="pill basic">Scale</span>
+            <h3>Invalidation at Scale</h3>
+            <p>Pub/sub invalidation across instances, distributed locks, and cache stampede prevention.</p>
+          </a>
+        </div>
+        <div style="text-align:center; margin-top:8px;">
+          <a href="guides/index.html">See all six guides →</a>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<footer class="site-footer">
+  Built for learning, styled like the docs you already know. ·
+  <a href="learn/index.html">Start the tutorial</a>
+</footer>
+
+<div class="sidebar-backdrop"></div>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

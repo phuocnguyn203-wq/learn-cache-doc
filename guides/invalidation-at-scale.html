@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invalidation at Scale — Cache Docs</title>
+<meta name="description" content="Two-tier cache invalidation with Redis Pub/Sub, plus taming cache stampedes with distributed locks and probabilistic early expiration (XFetch), in FastAPI and Express.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+  <a href="../index.html" class="brand">
+    <span class="brand-mark">⚡</span>
+    Cache Docs
+  </a>
+  <nav class="header-nav">
+    <a href="../index.html">Home</a>
+    <a href="../learn/index.html">Learn</a>
+    <a href="index.html" class="active">Guides</a>
+  </nav>
+  <div class="header-spacer"></div>
+  <div class="header-search">🔍 Search (coming soon)</div>
+  <a class="gh-link" href="https://github.com/your-username/cache-docs" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-title">Get Started</div>
+      <nav>
+        <a href="../index.html">Overview</a>
+        <a href="../learn/index.html">Learn</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-title">Production Guides</div>
+      <nav>
+        <a href="patterns.html">Caching Patterns</a>
+        <a href="redis-caching.html">Redis Caching</a>
+        <a href="fastapi-cache2.html">Caching Libraries</a>
+        <a href="http-caching-advanced.html">Advanced HTTP Caching</a>
+        <a href="invalidation-at-scale.html" class="active">Invalidation at Scale</a>
+        <a href="testing-observability.html">Testing &amp; Observability</a>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="content-wrap">
+    <main class="content">
+
+      <div class="page-meta">
+        <span class="pill basic">Guide</span>
+        <span class="read-time">~14 min · hands-on · FastAPI &amp; Express</span>
+      </div>
+      <h1>Invalidation at Scale</h1>
+      <p class="lede">
+        <a href="../learn/invalidation.html">Invalidation</a> in Learn clears one key in one process.
+        Two things get harder once you're running a fleet: propagating invalidation to caches that
+        aren't Redis itself, and avoiding a stampede when a hot key does expire.
+      </p>
+
+      <h2 id="two-tier">Two-tier caching and why Pub/Sub matters</h2>
+      <p>
+        A common design layers a small local (in-process) cache in front of Redis, to avoid even the
+        network round-trip for extremely hot keys. Deleting a key from Redis clears the shared layer
+        instantly — but every instance's <em>local</em> copy is untouched until its own TTL happens to
+        expire. You need a way to tell every instance, right now, "forget this key."
+      </p>
+      <p>Redis Pub/Sub solves exactly this: broadcast an invalidation message, and every instance listening clears its own local entry.</p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">import redis.asyncio as redis
+
+local_cache: dict[str, dict] = {}
+
+async def invalidate_product(product_id: int, r: redis.Redis) -> None:
+    cache_key = f"product:{product_id}"
+    await r.delete(cache_key)
+    await r.publish("cache-invalidation", cache_key)
+
+async def listen_for_invalidations(r: redis.Redis) -> None:
+    pubsub = r.pubsub()
+    await pubsub.subscribe("cache-invalidation")
+    async for message in pubsub.listen():
+        if message["type"] == "message":
+            local_cache.pop(message["data"], None)</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">const localCache = new Map();
+
+async function invalidateProduct(productId, r) {
+  const cacheKey = `product:${productId}`;
+  await r.del(cacheKey);
+  await r.publish("cache-invalidation", cacheKey);
+}
+
+async function listenForInvalidations(r) {
+  const subscriber = r.duplicate();
+  await subscriber.connect();
+  await subscriber.subscribe("cache-invalidation", (cacheKey) => {
+    localCache.delete(cacheKey);
+  });
+}</code></pre>
+        </div>
+      </div>
+      <p>
+        The two client APIs shape this differently. Python's <code>pubsub.listen()</code> is an async
+        generator — you <code>async for</code> over incoming messages and check each one's type.
+        Node's client instead takes a <strong>callback</strong> directly in <code>subscribe()</code>,
+        invoked once per message, with no message-type check needed.
+      </p>
+      <p>
+        Also note <code>r.duplicate()</code>: a Redis connection that's subscribed to a channel can't
+        issue ordinary commands on that same connection, so Node's client requires you to explicitly
+        open a second connection dedicated to subscribing. Python's <code>r.pubsub()</code> has the
+        same underlying requirement — it just opens that second connection for you internally.
+      </p>
+      <p>
+        <code>listen_for_invalidations</code> / <code>listenForInvalidations</code> runs once per
+        instance, started from <code>lifespan</code> (FastAPI) or right after connecting (Express).
+        When any instance calls the invalidate function, every instance's local cache drops that key
+        within milliseconds — regardless of which instance served the original write.
+      </p>
+
+      <h2 id="stampede">The cache stampede problem</h2>
+      <p>
+        When a popular key expires, many concurrent requests can miss at the exact same instant and
+        all recompute the same value simultaneously — multiplying load on the database by however
+        many requests happened to arrive in that window. This is independent of whether you're on one
+        instance or many; a shared Redis cache doesn't prevent it by itself.
+      </p>
+
+      <h2 id="locking">Fix 1: a distributed lock</h2>
+      <p>Let only the first request that sees a miss recompute; everyone else waits briefly and retries.</p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">import asyncio
+
+async def get_product_locked(product_id: int, r: redis.Redis) -> dict:
+    cache_key = f"product:{product_id}"
+    lock_key = f"lock:{cache_key}"
+
+    cached = await r.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
+    got_lock = await r.set(lock_key, "1", nx=True, ex=5)
+    if got_lock:
+        try:
+            product = await db.fetch_product(product_id)
+            await r.set(cache_key, json.dumps(product), ex=300)
+            return product
+        finally:
+            await r.delete(lock_key)
+
+    await asyncio.sleep(0.05)
+    return await get_product_locked(product_id, r)</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">async function getProductLocked(productId, r) {
+  const cacheKey = `product:${productId}`;
+  const lockKey = `lock:${cacheKey}`;
+
+  const cached = await r.get(cacheKey);
+  if (cached) return JSON.parse(cached);
+
+  const gotLock = await r.set(lockKey, "1", { NX: true, EX: 5 });
+  if (gotLock) {
+    try {
+      const product = await db.fetchProduct(productId);
+      await r.set(cacheKey, JSON.stringify(product), { EX: 300 });
+      return product;
+    } finally {
+      await r.del(lockKey);
+    }
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  return getProductLocked(productId, r);
+}</code></pre>
+        </div>
+      </div>
+      <p><code>SET ... NX EX</code> is atomic in Redis — exactly one caller can hold the lock at a time, and it self-expires even if the holder crashes before releasing it. Both clients return a truthy value from <code>set(..., NX: true)</code> only when the key didn't already exist and the write succeeded.</p>
+
+      <h2 id="xfetch">Fix 2: probabilistic early expiration (XFetch)</h2>
+      <p>
+        Locking prevents the stampede but still makes every other request wait. A more sophisticated
+        approach — described in Vattani, Chierichetti &amp; Lowenstein's
+        <em>"Optimal Probabilistic Cache Stampede Prevention"</em> and used in production at Facebook —
+        avoids the hard cliff entirely: instead of "valid until exactly T, then everyone recomputes,"
+        each read has a small, rising probability of recomputing <strong>early</strong>, well before
+        the real expiry. A few unlucky requests refresh the value ahead of time, so by the time it
+        would have actually expired, it never does — no simultaneous miss, no stampede.
+      </p>
+      <div class="framework-tabs">
+        <div class="framework-tab-buttons">
+          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
+          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
+        </div>
+        <div class="framework-tab-panel active" data-lang="fastapi">
+          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-python">import math
+import random
+import time
+
+async def get_product_xfetch(product_id: int, r: redis.Redis, beta: float = 1.0) -> dict:
+    cache_key = f"product:{product_id}"
+    entry = await r.hgetall(cache_key)  # {} if the key doesn't exist
+
+    if entry:
+        expiry = float(entry["expiry"])
+        delta = float(entry["delta"])  # how long the last computation took
+        now = time.time()
+        if now - delta * beta * math.log(random.random()) < expiry:
+            return json.loads(entry["data"])
+
+    start = time.time()
+    product = await db.fetch_product(product_id)
+    delta = time.time() - start
+
+    await r.hset(cache_key, mapping={
+        "data": json.dumps(product),
+        "expiry": start + 300,
+        "delta": delta,
+    })
+    return product</code></pre>
+        </div>
+        <div class="framework-tab-panel" data-lang="express">
+          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+          <pre><code class="language-javascript">async function getProductXfetch(productId, r, beta = 1.0) {
+  const cacheKey = `product:${productId}`;
+  const entry = await r.hGetAll(cacheKey); // {} if the key doesn't exist
+
+  if (entry.expiry) {
+    const expiry = Number(entry.expiry);
+    const delta = Number(entry.delta); // how long the last computation took
+    const now = Date.now() / 1000;
+    if (now - delta * beta * Math.log(Math.random()) < expiry) {
+      return JSON.parse(entry.data);
+    }
+  }
+
+  const start = Date.now() / 1000;
+  const product = await db.fetchProduct(productId);
+  const delta = Date.now() / 1000 - start;
+
+  await r.hSet(cacheKey, {
+    data: JSON.stringify(product),
+    expiry: String(start + 300),
+    delta: String(delta),
+  });
+  return product;
+}</code></pre>
+        </div>
+      </div>
+      <div class="admonition tip">
+        <div class="admonition-title">💡 A subtle language difference in the check itself</div>
+        <p>
+          Python's <code>if entry:</code> works because an empty dict (<code>{}</code>, what
+          <code>hgetall</code> returns for a missing key) is falsy. In JavaScript, <strong>every
+          object is truthy</strong> — even <code>{}</code> — so <code>if (entry)</code> would
+          incorrectly pass even when the key doesn't exist. The Node version checks
+          <code>entry.expiry</code> specifically instead, which is <code>undefined</code> (falsy) when
+          the hash doesn't exist.
+        </p>
+      </div>
+      <p>
+        <code>-delta * beta * log(random())</code> is near zero right after caching (so almost every
+        read is a normal hit) and grows as <code>now</code> approaches <code>expiry</code> — smoothly
+        increasing the chance of an early, single-request recompute the closer you get to real
+        expiration. <code>delta</code> means slower-to-compute values start renewing earlier, since a
+        stampede on an expensive query is more costly than one on a cheap one.
+      </p>
+
+      <h2 id="comparison">Locking vs. XFetch</h2>
+      <table class="kv-table">
+        <tbody>
+          <tr><td>Locking</td><td>Simple to reason about; guarantees exactly one recompute at a time; adds latency for every caller that has to wait, and requires tuning the lock's own expiry.</td></tr>
+          <tr><td>XFetch</td><td>No caller ever blocks; recomputation spreads out smoothly instead of concentrating; more moving parts (extra stored metadata, a formula to get right) and a small chance of very slightly early recomputation.</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="recap">Recap</h2>
+      <ul>
+        <li>Redis Pub/Sub propagates invalidation to local, per-instance caches that a plain <code>DEL</code> on Redis can't reach — Python iterates messages with an async generator, Node registers a callback.</li>
+        <li>A cache stampede is many requests recomputing the same expired key at the same instant — it gets worse, not better, just because you're using a shared cache.</li>
+        <li>A distributed lock (<code>SET NX EX</code>) guarantees only one recompute, at the cost of making other callers wait briefly.</li>
+        <li>Probabilistic early expiration (XFetch) avoids blocking entirely by spreading recomputation out before the real expiry — and its "is there a cached entry?" check needs to be written differently in Python (falsy empty dict) than in JavaScript (objects are always truthy).</li>
+      </ul>
+
+      <div class="next-page">
+        <a href="http-caching-advanced.html">
+          <div class="dir">Back</div>
+          <div class="label">← Advanced HTTP Caching</div>
+        </a>
+        <a href="testing-observability.html" class="next">
+          <div class="dir">Next</div>
+          <div class="label">Testing &amp; Observability →</div>
+        </a>
+      </div>
+    </main>
+  </div>
+
+  <aside class="toc">
+    <div class="toc-inner">
+      <div class="toc-title">On this page</div>
+      <div class="toc-links"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="sidebar-backdrop"></div>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="../js/main.js"></script>
+</body>
+</html>

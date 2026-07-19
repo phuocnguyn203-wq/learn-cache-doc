@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TTL &amp; Expiration — Cache Docs</title>
+<meta name="description" content="Milk has an expiration date for a reason — cached data needs one too. Learn how TTL works, with time.time() explained from scratch in FastAPI.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+  <a href="../index.html" class="brand">
+    <span class="brand-mark">⚡</span>
+    Cache Docs
+  </a>
+  <nav class="header-nav">
+    <a href="../index.html">Home</a>
+    <a href="index.html" class="active">Learn</a>
+    <a href="../guides/index.html">Guides</a>
+  </nav>
+  <div class="header-spacer"></div>
+  <div class="header-search">🔍 Search (coming soon)</div>
+  <a class="gh-link" href="https://github.com/your-username/cache-docs" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-title">Get Started</div>
+      <nav>
+        <a href="../index.html">Overview</a>
+        <a href="index.html">Learn</a>
+      </nav>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-title">Learn Caching</div>
+      <nav>
+        <a href="what-is-caching.html">1. What is Caching?</a>
+        <a href="your-first-cache.html">2. Your First Cache</a>
+        <a href="cache-keys.html">3. Cache Keys</a>
+        <a href="ttl.html" class="active">4. TTL &amp; Expiration</a>
+        <a href="eviction.html">5. Eviction</a>
+        <a href="invalidation.html">6. Invalidation</a>
+        <a href="http-caching.html">7. HTTP Caching</a>
+        <a href="putting-it-together.html">8. Putting It Together</a>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="content-wrap">
+    <main class="content">
+
+      <div class="page-meta">
+        <span class="pill basic">Lesson 4 of 8</span>
+        <span class="read-time">~9 min · hands-on · Python/FastAPI</span>
+      </div>
+      <h1>TTL &amp; Expiration</h1>
+      <p class="lede">
+        Milk in the fridge has a date printed on the carton. You don't drink it forever just because
+        it's sitting there. Cached data needs the same idea: a point where it stops being trustworthy.
+      </p>
+
+      <h2 id="the-problem">The problem: our cache never forgets</h2>
+      <p>
+        In the last two lessons, once an answer goes into a drawer, it stays there <strong>forever</strong>.
+        If the real temperature in Paris changes from 24° to 30° an hour later, our endpoint doesn't
+        care — it keeps confidently returning 24°, because as far as the code knows, nothing ever
+        expires.
+      </p>
+
+      <h2 id="the-idea">The idea: remember <em>when</em>, not just <em>what</em></h2>
+      <p>
+        Instead of only saving the answer, we'll also save a timestamp of the moment we saved it —
+        like a sticky note that says "packed at 3:00 PM." Later, before trusting the drawer, we'll check
+        how much time has passed.
+      </p>
+      <p>Python's <code>time</code> module gives us exactly the tool for this: <code>time.time()</code>.</p>
+      <div class="code-block-tight">
+        <div class="code-block-header"><span class="code-filename">just exploring, not part of our app yet</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-python">import time
+print(time.time())  # e.g. 1737382021.5 — "right now", as a single number</code></pre>
+      </div>
+      <div class="admonition note">
+        <div class="admonition-title">🧒 What is that number?</div>
+        <p>
+          <code>time.time()</code> returns the number of seconds since a fixed moment far in the past
+          (January 1st, 1970 — an arbitrary starting line computers agreed on decades ago). You never
+          need to think about that date. All that matters: this number only ever goes <strong>up</strong>,
+          one per second, so a later moment is always a bigger number than an earlier one. That means
+          subtracting an old <code>time.time()</code> from a new one tells you exactly how many seconds
+          passed in between.
+        </p>
+      </div>
+
+      <h2 id="building-it">Building it, step by step</h2>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Store the answer <em>and</em> the timestamp together</h3>
+          <p>Instead of putting the weather directly in the drawer, we put a small wrapper with two labeled compartments:</p>
+          <div class="code-block-tight">
+            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-python">cache[cache_key] = {
+    "data": weather,
+    "saved_at": time.time(),
+}</code></pre>
+          </div>
+          <p><code>"data"</code> holds the real answer; <code>"saved_at"</code> holds the timestamp from the moment we stored it.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>When reading, check how old it is</h3>
+          <div class="code-block-tight">
+            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-python">TTL_SECONDS = 10
+
+entry = cache.get(cache_key)
+if entry:
+    age = time.time() - entry["saved_at"]
+    if age < TTL_SECONDS:
+        return entry["data"]</code></pre>
+          </div>
+          <ul class="line-notes">
+            <li><code>TTL_SECONDS = 10</code><span>Our chosen "shelf life" — 10 seconds, kept short here so you can watch it expire while testing. <a href="what-is-caching.html#vocabulary">TTL</a> stands for "time-to-live."</span></li>
+            <li><code>cache.get(cache_key)</code><span>Like <code>cache[cache_key]</code>, but if the drawer doesn't exist, it hands back <code>None</code> instead of crashing the program. Safer when we're not sure the drawer is there.</span></li>
+            <li><code>if entry:</code><span>"Did we get something back (not <code>None</code>)?" — i.e. does this drawer exist at all.</span></li>
+            <li><code>age = time.time() - entry["saved_at"]</code><span>"Right now" minus "when we saved it" equals how many seconds have passed since.</span></li>
+            <li><code>if age < TTL_SECONDS:</code><span>Only trust the cached answer if it's younger than our 10-second limit.</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <h2 id="full-code">The full endpoint</h2>
+      <div class="code-block-tight">
+        <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-python">import time
+from fastapi import FastAPI
+
+app = FastAPI()
+cache = {}
+TTL_SECONDS = 10
+
+@app.get("/weather/{city}")
+def get_weather(city: str, units: str = "celsius"):
+    cache_key = f"{city}:{units}"
+    entry = cache.get(cache_key)
+
+    if entry:
+        age = time.time() - entry["saved_at"]
+        if age < TTL_SECONDS:
+            return entry["data"]
+
+    time.sleep(3)
+    temperature = 24 if units == "celsius" else 75
+    weather = {"city": city, "temperature": temperature, "units": units}
+    cache[cache_key] = {"data": weather, "saved_at": time.time()}
+    return weather</code></pre>
+      </div>
+      <p>
+        Notice the shape hasn't really changed since <a href="your-first-cache.html">Lesson 2</a>: check
+        first, do the slow work and save it if you have to. We've just made the "check" smarter — it now
+        also asks "...and is it still fresh?"
+      </p>
+
+      <h2 id="try-it">Try it yourself</h2>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-bash">curl http://localhost:8000/weather/paris   # ~3s (miss — nothing cached yet)
+curl http://localhost:8000/weather/paris   # instant (hit — younger than 10s)
+
+# wait 11 seconds...
+
+curl http://localhost:8000/weather/paris   # ~3s again (miss — the entry expired)</code></pre>
+        </div>
+      <p>Once more than 10 seconds pass, the drawer is still technically there — but we no longer trust it, so we redo the work and refresh it with a new timestamp.</p>
+
+      <h2 id="choosing-a-ttl">How do you choose a TTL?</h2>
+      <p>It's a trade-off, and it depends entirely on how fast the real answer changes and how outdated an answer is acceptable to show:</p>
+      <table>
+        <thead><tr><th>Kind of data</th><th>Reasonable TTL</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Stock price</td><td>A few seconds</td><td>Changes constantly; staleness is costly</td></tr>
+          <tr><td>Weather</td><td>A few minutes</td><td>Changes slowly; a short delay is harmless</td></tr>
+          <tr><td>List of countries</td><td>Hours or a day</td><td>Basically never changes</td></tr>
+        </tbody>
+      </table>
+      <p>Shorter TTL → fresher data, but more slow work happening. Longer TTL → less slow work, but data can be wrong for longer. There's no universal right answer, only a trade-off to make deliberately.</p>
+
+      <h2 id="recap">Recap</h2>
+      <ul>
+        <li>A TTL (time-to-live) is how long a cached answer is trusted before it's treated as expired.</li>
+        <li><code>time.time()</code> gives you an always-increasing "right now" number; subtracting two of them gives elapsed seconds.</li>
+        <li>Storing <code>{"data": ..., "saved_at": ...}</code> instead of the raw answer lets us check freshness later.</li>
+        <li>Choosing a TTL is a trade-off between freshness and how much slow work you're willing to repeat.</li>
+      </ul>
+
+      <div class="next-page">
+        <a href="cache-keys.html">
+          <div class="dir">Back</div>
+          <div class="label">← Cache Keys</div>
+        </a>
+        <a href="eviction.html" class="next">
+          <div class="dir">Next</div>
+          <div class="label">Eviction →</div>
+        </a>
+      </div>
+    </main>
+  </div>
+
+  <aside class="toc">
+    <div class="toc-inner">
+      <div class="toc-title">On this page</div>
+      <div class="toc-links"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="sidebar-backdrop"></div>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="../js/main.js"></script>
+</body>
+</html>
