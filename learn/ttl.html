@@ -33,6 +33,7 @@
       <nav>
         <a href="../index.html">Overview</a>
         <a href="index.html">Learn</a>
+        <a href="../guides/index.html">Guides</a>
       </nav>
     </div>
     <div class="sidebar-group">
@@ -117,7 +118,7 @@ print(time.time())  # e.g. 1737382021.5 — "right now", as a single number</cod
         <div class="step-num">2</div>
         <div class="step-body">
           <h3>When reading, check how old it is</h3>
-          <div class="code-block-tight">
+          <div class="code-block">
             <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
             <pre><code class="language-python">TTL_SECONDS = 10
 
@@ -127,13 +128,6 @@ if entry:
     if age < TTL_SECONDS:
         return entry["data"]</code></pre>
           </div>
-          <ul class="line-notes">
-            <li><code>TTL_SECONDS = 10</code><span>Our chosen "shelf life" — 10 seconds, kept short here so you can watch it expire while testing. <a href="what-is-caching.html#vocabulary">TTL</a> stands for "time-to-live."</span></li>
-            <li><code>cache.get(cache_key)</code><span>Like <code>cache[cache_key]</code>, but if the drawer doesn't exist, it hands back <code>None</code> instead of crashing the program. Safer when we're not sure the drawer is there.</span></li>
-            <li><code>if entry:</code><span>"Did we get something back (not <code>None</code>)?" — i.e. does this drawer exist at all.</span></li>
-            <li><code>age = time.time() - entry["saved_at"]</code><span>"Right now" minus "when we saved it" equals how many seconds have passed since.</span></li>
-            <li><code>if age < TTL_SECONDS:</code><span>Only trust the cached answer if it's younger than our 10-second limit.</span></li>
-          </ul>
         </div>
       </div>
 

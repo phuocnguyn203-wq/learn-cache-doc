@@ -33,6 +33,7 @@
       <nav>
         <a href="../index.html">Overview</a>
         <a href="index.html">Learn</a>
+        <a href="../guides/index.html">Guides</a>
       </nav>
     </div>
     <div class="sidebar-group">
@@ -105,19 +106,18 @@ def get_weather(city: str, response: Response):
         <div class="step-num">2</div>
         <div class="step-body">
           <h3>Set the header</h3>
-          <div class="code-block-tight">
+          <div class="code-block">
             <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
             <pre><code class="language-python">response.headers["Cache-Control"] = "public, max-age=30"
 return weather</code></pre>
           </div>
           <p>
             <code>response.headers</code> works just like a dictionary of little notes attached to the
-            response. We're setting one note, made of two comma-separated parts:
+            response. We're setting one note, made of two comma-separated parts: <code>public</code>
+            (anyone is allowed to reuse this response, not just the one browser that asked — this matters
+            for shared caches sitting in between, like a CDN) and <code>max-age=30</code> (this note is
+            good for 30 seconds, counting from right now).
           </p>
-          <ul class="line-notes">
-            <li><code>public</code><span>Anyone is allowed to reuse this response — not just the one browser that asked. This matters for shared caches sitting in between, like a CDN.</span></li>
-            <li><code>max-age=30</code><span>This note is good for 30 seconds, counting from right now.</span></li>
-          </ul>
         </div>
       </div>
 

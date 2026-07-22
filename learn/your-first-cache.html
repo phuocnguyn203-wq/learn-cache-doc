@@ -33,6 +33,7 @@
       <nav>
         <a href="../index.html">Overview</a>
         <a href="index.html">Learn</a>
+        <a href="../guides/index.html">Guides</a>
       </nav>
     </div>
     <div class="sidebar-group">
@@ -71,7 +72,7 @@
         Here's that endpoint:
       </p>
 
-      <div class="code-block-tight">
+      <div class="code-block">
         <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
         <pre><code class="language-python">import time
 from fastapi import FastAPI
@@ -83,15 +84,6 @@ def get_weather(city: str):
     time.sleep(3)  # pretend this is a slow call to a weather service
     return {"city": city, "temperature": 24}</code></pre>
       </div>
-      <ul class="line-notes">
-        <li><code>import time</code><span>Brings in Python's built-in time toolbox, so we can use <code>time.sleep()</code> (and later, <code>time.time()</code>).</span></li>
-        <li><code>from fastapi import FastAPI</code><span>Brings in the <code>FastAPI</code> class — the tool that turns our Python code into a running web server.</span></li>
-        <li><code>app = FastAPI()</code><span>Creates one application and stores it in a variable named <code>app</code>. Every endpoint we add hangs off this one object.</span></li>
-        <li><code>@app.get("/weather/{city}")</code><span>A <em>decorator</em> — a label placed on top of a function — that tells FastAPI: "when someone visits <code>/weather/paris</code> (or any city), run the function right below me." The <code>{city}</code> part is a placeholder for whatever the visitor typed.</span></li>
-        <li><code>def get_weather(city: str):</code><span>A normal Python function. Because the decorator matched <code>city</code> from the URL, FastAPI hands it to us here as text (<code>str</code>).</span></li>
-        <li><code>time.sleep(3)</code><span>Pauses for 3 seconds. This fakes a slow weather service — a real one is slow for a similar reason: it has to ask another computer over the internet.</span></li>
-        <li><code>return {"city": ...}</code><span>Sends back a Python dictionary. FastAPI automatically converts it to JSON, the text format web apps understand.</span></li>
-      </ul>
       <p>
         Run this and visit it a few times — even for the exact same city, every single visit waits the
         full 3 seconds. The server never remembers anything. Let's give it a memory.
@@ -103,17 +95,12 @@ def get_weather(city: str):
         — and inside sits a piece of paper with the answer. Python already has exactly this kind of box
         built in. It's called a <strong>dictionary</strong> (<code>dict</code> for short):
       </p>
-      <div class="code-block-tight">
+      <div class="code-block">
         <div class="code-block-header"><span class="code-filename">a plain Python dict, no FastAPI yet</span><button class="copy-btn">Copy</button></div>
         <pre><code class="language-python">box = {}            # an empty box, no drawers yet
 box["Paris"] = 24   # put 24 in a new drawer labeled "Paris"
 print(box["Paris"])  # open the "Paris" drawer and read what's inside -> 24</code></pre>
       </div>
-      <ul class="line-notes">
-        <li><code>box = {}</code><span>Curly braces create an empty dictionary — a box with zero drawers yet.</span></li>
-        <li><code>box["Paris"] = 24</code><span>Creates a drawer labeled <code>"Paris"</code> (or overwrites it if it already existed) and puts <code>24</code> inside.</span></li>
-        <li><code>box["Paris"]</code><span>Opens the drawer labeled <code>"Paris"</code> and gives you back what's inside.</span></li>
-      </ul>
       <p>
         One more trick we'll use constantly: <code>"Paris" in box</code> asks "does a drawer with this
         label exist?" — without needing to open it. That's exactly what a cache needs to do first:
@@ -180,7 +167,7 @@ return weather</code></pre>
 
       <h2 id="full-code">The full endpoint</h2>
       <p>Put together, here's the whole file:</p>
-      <div class="code-block-tight">
+      <div class="code-block">
         <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
         <pre><code class="language-python">import time
 from fastapi import FastAPI
@@ -198,12 +185,6 @@ def get_weather(city: str):
     cache[city] = weather
     return weather</code></pre>
       </div>
-      <ul class="line-notes">
-        <li><code>cache = {}</code><span>Our box, created once, at server start-up.</span></li>
-        <li><code>if city in cache:</code><span>"Is there already a drawer labeled with this exact city?"</span></li>
-        <li><code>return cache[city]</code><span>Yes — hand back what's inside, instantly. No sleep, no slow work.</span></li>
-        <li><code>cache[city] = weather</code><span>No — so before we leave, label a new drawer with this city and put the answer inside for next time.</span></li>
-      </ul>
 
       <h2 id="try-it">Try it yourself</h2>
       <p>Start the server (<code>uvicorn main:app --reload</code>) and request the same city twice:</p>

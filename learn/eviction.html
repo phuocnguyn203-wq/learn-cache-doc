@@ -33,6 +33,7 @@
       <nav>
         <a href="../index.html">Overview</a>
         <a href="index.html">Learn</a>
+        <a href="../guides/index.html">Guides</a>
       </nav>
     </div>
     <div class="sidebar-group">
@@ -97,18 +98,13 @@
         the <em>order</em> we last touched them, and lets us both peek at and remove the oldest one on
         demand. Python's <code>collections.OrderedDict</code> gives us exactly that:
       </p>
-      <div class="code-block-tight">
+      <div class="code-block">
         <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
         <pre><code class="language-python">from collections import OrderedDict
 
 cache = OrderedDict()
 MAX_ITEMS = 3</code></pre>
       </div>
-      <ul class="line-notes">
-        <li><code>from collections import OrderedDict</code><span>Brings in a special dictionary type from Python's standard library that tracks the order its keys were added or last touched.</span></li>
-        <li><code>cache = OrderedDict()</code><span>An empty ordered box — works like a normal dict, plus two extra powers we're about to use.</span></li>
-        <li><code>MAX_ITEMS = 3</code><span>Our size limit — kept tiny here so you can see eviction happen after just a few requests.</span></li>
-      </ul>
 
       <h2 id="building-it">Building it, step by step</h2>
 
@@ -134,16 +130,11 @@ MAX_ITEMS = 3</code></pre>
         <div class="step-num">2</div>
         <div class="step-body">
           <h3>On a miss, make room <em>before</em> adding something new</h3>
-          <div class="code-block-tight">
+          <div class="code-block">
             <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
             <pre><code class="language-python">if len(cache) >= MAX_ITEMS:
     cache.popitem(last=False)  # remove the least recently used drawer</code></pre>
           </div>
-          <ul class="line-notes">
-            <li><code>len(cache)</code><span>Counts how many drawers currently exist in the box.</span></li>
-            <li><code>if len(cache) >= MAX_ITEMS:</code><span>"Are we already at (or somehow past) our limit?"</span></li>
-            <li><code>cache.popitem(last=False)</code><span>The second extra power — removes and returns one item. <code>last=False</code> means "take it from the front of the order" — the drawer that's gone the longest without being touched.</span></li>
-          </ul>
         </div>
       </div>
 

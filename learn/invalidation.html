@@ -33,6 +33,7 @@
       <nav>
         <a href="../index.html">Overview</a>
         <a href="index.html">Learn</a>
+        <a href="../guides/index.html">Guides</a>
       </nav>
     </div>
     <div class="sidebar-group">
@@ -91,18 +92,13 @@
         <div class="step-body">
           <h3>Add a way to correct the data</h3>
           <p>Let's add an endpoint that lets an admin manually fix a city's temperature:</p>
-          <div class="code-block-tight">
+          <div class="code-block">
             <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
             <pre><code class="language-python">@app.put("/weather/{city}")
 def correct_weather(city: str, temperature: float, units: str = "celsius"):
     save_weather_to_database(city, temperature, units)  # pretend this updates the real record
     ...</code></pre>
           </div>
-          <ul class="line-notes">
-            <li><code>@app.put(...)</code><span>A different decorator from <code>@app.get</code>. By convention, <code>GET</code> means "give me information," while <code>PUT</code> means "here's a correction — save it." Same idea as before, different intention.</span></li>
-            <li><code>temperature: float</code><span>A new input, this time a decimal number (<code>float</code>) instead of text, coming from whoever calls this endpoint.</span></li>
-            <li><code>save_weather_to_database(...)</code><span>Stands in for wherever your <em>real</em>, permanent data lives — a database, in a real app. This line updates the source of truth.</span></li>
-          </ul>
         </div>
       </div>
 
@@ -110,7 +106,7 @@ def correct_weather(city: str, temperature: float, units: str = "celsius"):
         <div class="step-num">2</div>
         <div class="step-body">
           <h3>Forget the cached answer for this exact key</h3>
-          <div class="code-block-tight">
+          <div class="code-block">
             <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
             <pre><code class="language-python">cache_key = f"{city}:{units}"
 if cache_key in cache:
@@ -118,11 +114,6 @@ if cache_key in cache:
 
 return {"status": "updated"}</code></pre>
           </div>
-          <ul class="line-notes">
-            <li><code>cache_key = f"{city}:{units}"</code><span>The exact same key-building logic from <a href="cache-keys.html">Lesson 3</a> — we need to target the same drawer the read endpoint would look for.</span></li>
-            <li><code>if cache_key in cache:</code><span>Checks the drawer exists before touching it.</span></li>
-            <li><code>del cache[cache_key]</code><span><code>del</code> throws the whole drawer away — both its label and its contents. We check first because calling <code>del</code> on a label that doesn't exist would crash the program with an error.</span></li>
-          </ul>
         </div>
       </div>
 
