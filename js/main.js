@@ -4,16 +4,24 @@
   /* ---------------- Mobile sidebar toggle ---------------- */
   var toggle = document.querySelector(".nav-toggle");
   var sidebar = document.querySelector(".sidebar");
+  var headerNav = document.querySelector(".header-nav");
   var backdrop = document.querySelector(".sidebar-backdrop");
 
   function closeSidebar() {
     if (sidebar) sidebar.classList.remove("open");
+    if (headerNav) headerNav.classList.remove("mobile-open");
     if (backdrop) backdrop.classList.remove("open");
   }
 
-  if (toggle && sidebar) {
+  if (toggle) {
     toggle.addEventListener("click", function () {
-      sidebar.classList.toggle("open");
+      // pages with a sidebar (lessons/guides) toggle it; the landing page
+      // has no sidebar, so fall back to a dropdown of the header nav links
+      if (sidebar) {
+        sidebar.classList.toggle("open");
+      } else if (headerNav) {
+        headerNav.classList.toggle("mobile-open");
+      }
       if (backdrop) backdrop.classList.toggle("open");
     });
   }

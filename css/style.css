@@ -711,6 +711,22 @@ footer.site-footer a { color: var(--text-muted); }
 @media (max-width: 900px) {
   .nav-toggle { display: flex; }
   .header-nav { display: none; }
+  .header-nav.mobile-open {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: var(--header-h);
+    left: 0;
+    right: 0;
+    margin-left: 0;
+    padding: 8px 12px;
+    gap: 0;
+    background: var(--sidebar-bg);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-soft);
+    z-index: 95;
+  }
+  .header-nav.mobile-open a { padding: 12px; font-size: 1rem; }
   .header-search { display: none; }
   .sidebar {
     transform: translateX(-100%);

@@ -5,11 +5,12 @@ A small, static, FastAPI-docs-styled site that teaches caching two ways:
 - **Learn** — eight short lessons that build every core idea up from zero, one at a time — cache
   stores, keys, TTL, eviction, invalidation, HTTP caching — with every line of code explained, in
   plain FastAPI (Python). No prior caching knowledge assumed.
-- **Guides** — six practical, production-grade references for developers who already know that
-  vocabulary: real libraries (Redis, fastapi-cache2, apicache), the Redis command API itself,
+- **Guides** — eight practical, production-grade references for developers who already know that
+  vocabulary: Redis concepts and its command API, real libraries (fastapi-cache2, apicache),
   standard pattern names, and the trade-offs a professional team weighs when caching ships to
-  production. Every guide is shown in both **FastAPI (Python)** and **Express (Node.js)**, switchable
-  via the tabs above each code block.
+  production. Most guides are shown in both **FastAPI (Python)** and **Express (Node.js)**,
+  switchable via the tabs above each code block; the Node.js-specific Redis guide goes deep on
+  node-redis alone.
 
 Plain HTML/CSS/JS, no build step, no framework — just open it or host it as static files.
 
@@ -28,9 +29,11 @@ learn/invalidation.html               6. Invalidation (clearing a cache entry on
 learn/http-caching.html                7. HTTP caching (the Cache-Control header)
 learn/putting-it-together.html         8. Full combined example + lesson map
 
-guides/index.html                    Guides hub — links to all six guides
+guides/index.html                    Guides hub — links to all eight guides
 guides/patterns.html                   Cache-Aside, Read-Through, Write-Through, Write-Behind
+guides/redis-concepts.html              Redis fundamentals: data structures, persistence, eviction, TTL
 guides/redis-caching.html               Redis lifecycle, DI, the core Redis command API, fail-open
+guides/redis-nodejs.html                 node-redis in depth: commands, transactions, pub/sub, patterns
 guides/fastapi-cache2.html               Decorator/middleware caching: fastapi-cache2 & apicache
 guides/http-caching-advanced.html        ETag/304, Vary, stale-while-revalidate, CDN edge caching
 guides/invalidation-at-scale.html        Pub/sub invalidation, distributed locks, XFetch
