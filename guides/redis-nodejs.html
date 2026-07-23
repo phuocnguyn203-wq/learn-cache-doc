@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redis with Node.js (node-redis) — Cache Docs</title>
+<meta name="description" content="The standard, production way to use Redis from Node.js with the official node-redis client: client setup, every core command, transactions, pub/sub, Lua scripting, and the patterns real teams build on top — rate limiting, distributed locks, and stampede-safe caching.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <button class="nav-toggle" aria-label="Toggle navigation">☰</button>
+  <a href="../index.html" class="brand">
+    <span class="brand-mark">⚡</span>
+    Cache Docs
+  </a>
+  <nav class="header-nav">
+    <a href="../index.html">Home</a>
+    <a href="../learn/index.html">Learn</a>
+    <a href="index.html" class="active">Guides</a>
+  </nav>
+  <div class="header-spacer"></div>
+  <div class="header-search">🔍 Search (coming soon)</div>
+  <a class="gh-link" href="https://github.com/your-username/cache-docs" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-title">Get Started</div>
+      <nav>
+        <a href="../index.html">Overview</a>
+        <a href="../learn/index.html">Learn</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-title">Production Guides</div>
+      <nav>
+        <a href="patterns.html">Caching Patterns</a>
+        <a href="redis-concepts.html">Redis Concepts</a>
+        <a href="redis-nodejs.html" class="active">Redis with Node.js</a>
+        <a href="caching-libraries.html">Caching Libraries</a>
+        <a href="http-caching-advanced.html">Advanced HTTP Caching</a>
+        <a href="invalidation-at-scale.html">Invalidation at Scale</a>
+        <a href="testing-observability.html">Testing &amp; Observability</a>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="content-wrap">
+    <main class="content">
+
+      <div class="page-meta">
+        <span class="pill basic">Guide</span>
+        <span class="read-time">~20 min · hands-on · Node.js</span>
+      </div>
+      <h1>Redis with Node.js (node-redis)</h1>
+      <p class="lede">
+        <a href="redis-concepts.html">Redis Concepts</a> covered what Redis is and how it thinks.
+        This guide is the practical, ground-up reference for actually using it from Node.js: the
+        official <code>redis</code> package (node-redis), the way real production codebases structure
+        the client, every command family in actual JavaScript, and the patterns — rate limiting,
+        distributed locks, stampede-safe caching — that show up in almost every Node service that
+        talks to Redis. If you followed <a href="../learn/putting-it-together.html">Learn</a> through
+        to the end, this is the natural next stop.
+      </p>
+
+      <div class="admonition note">
+        <div class="admonition-title">🧭 node-redis vs. ioredis</div>
+        <p>
+          Two clients dominate the Node.js ecosystem. <strong>node-redis</strong> (the
+          <code>redis</code> package, maintained by Redis Inc.) is the official client — a modern,
+          promise-based API that's what this guide covers, and what the rest of this site's examples
+          already use. <strong>ioredis</strong> is the other major option, historically favored for
+          its longer track record with Cluster and Sentinel and its built-in auto-pipelining. Both
+          are legitimate, widely-used-in-production choices; if a codebase you're working in already
+          picked one, learn that one — the underlying Redis commands and concepts on this page
+          transfer directly either way.
+        </p>
+      </div>
+
+      <h2 id="install">Installing and creating the client</h2>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-bash">npm install redis</code></pre>
+      </div>
+      <p>
+        The single most common mistake in Node.js codebases that use Redis: creating a new client
+        <em>per request</em>. A Redis client isn't a lightweight object — it's a persistent TCP
+        connection, and node-redis multiplexes every command from your whole app over one
+        connection. Create it <strong>once</strong>, at module load time, and import that same
+        instance everywhere you need Redis.
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">redis.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const { createClient } = require("redis");
+
+const client = createClient({
+  url: process.env.REDIS_URL || "redis://localhost:6379",
+});
+
+// required — an unhandled "error" event on an EventEmitter
+// crashes the Node process. Redis client errors are not optional to handle.
+client.on("error", (err) => {
+  console.error("Redis client error:", err);
+});
+
+module.exports = { client };</code></pre>
+      </div>
+      <p>
+        Every other module in the app does <code>const { client } = require("./redis")</code> and
+        gets the same connection — one client, shared, for the lifetime of the process.
+      </p>
+
+      <h2 id="lifecycle">Connecting and shutting down cleanly</h2>
+      <p>
+        <code>createClient</code> only constructs the client object — it doesn't open a connection.
+        Call <code>connect()</code> once, before your server starts accepting traffic, and close it
+        once, when the process is asked to stop.
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const express = require("express");
+const { client } = require("./redis");
+
+const app = express();
+// ... routes ...
+
+async function start() {
+  await client.connect();
+  app.listen(3000, () => console.log("Listening on http://localhost:3000"));
+}
+start();
+
+// SIGTERM is what your container orchestrator (Docker, Kubernetes) sends
+// before killing the process — this is what makes a graceful close possible
+// instead of the connection just being dropped mid-command.
+process.on("SIGTERM", async () => {
+  await client.quit();
+  process.exit(0);
+});</code></pre>
+      </div>
+      <p>
+        <code>client.quit()</code> waits for any commands already in flight to finish, then closes
+        the connection cleanly. There's also <code>client.disconnect()</code>, which closes
+        immediately without waiting — reach for that only when you specifically need an
+        unconditional, immediate teardown (test cleanup, for example), not as your default shutdown
+        path.
+      </p>
+
+      <h3 id="reconnect">Reconnection strategy</h3>
+      <p>
+        Networks blip and Redis restarts happen. <code>reconnectStrategy</code> is called after
+        every failed connection attempt with the number of retries so far, and returns how many
+        milliseconds to wait before the next one — this is where you implement backoff.
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">redis.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const client = createClient({
+  url: process.env.REDIS_URL || "redis://localhost:6379",
+  socket: {
+    connectTimeout: 2000, // ms to establish a connection before giving up
+    reconnectStrategy: (retries) => {
+      if (retries > 10) {
+        // stop retrying — surface as a hard error instead of retrying forever
+        return new Error("Redis: too many reconnection attempts");
+      }
+      // exponential backoff, capped at 3s, so a restart doesn't get hammered
+      return Math.min(retries * 100, 3000);
+    },
+  },
+});</code></pre>
+      </div>
+      <p>
+        Returning a plain number means "try again after this many ms." Returning an <code>Error</code>
+        stops node-redis from retrying further and the client emits that error — combine this with
+        <a href="#fail-open">failing open</a> in your route handlers so a Redis outage degrades
+        performance, not availability.
+      </p>
+
+      <h3 id="config">Configuring from the environment</h3>
+      <p>
+        Hardcoding <code>redis://localhost:6379</code> only works locally. The standard is a single
+        <code>REDIS_URL</code> environment variable, which also carries auth and TLS:
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">.env</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-bash"># local
+REDIS_URL=redis://localhost:6379
+
+# managed Redis with auth (ElastiCache, Redis Cloud, Upstash, ...)
+REDIS_URL=redis://default:mypassword@my-redis-host:6379
+
+# TLS — note the "rediss" (two S's) scheme, most managed providers require this
+REDIS_URL=rediss://default:mypassword@my-redis-host:6380</code></pre>
+      </div>
+      <p>
+        <code>createClient({ url: process.env.REDIS_URL })</code> parses username, password, host,
+        port, and TLS out of that one string — no separate config flags to keep in sync across
+        environments.
+      </p>
+
+      <h2 id="commands">The core commands, in node-redis</h2>
+      <p>
+        Every command family from <a href="redis-concepts.html">Redis Concepts</a> has a
+        corresponding method here. The naming convention is consistent throughout: multi-word Redis
+        commands become camelCase (<code>HGETALL</code> → <code>hGetAll</code>,
+        <code>ZINCRBY</code> → <code>zIncrBy</code>), and options that Redis itself takes as
+        uppercase flags (<code>EX</code>, <code>NX</code>) are passed as an options object with
+        those same uppercase keys.
+      </p>
+
+      <h3 id="strings">Strings</h3>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">strings.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">await client.set("product:1", JSON.stringify(product));
+await client.set("product:1", JSON.stringify(product), { EX: 300 }); // + 5 min TTL
+await client.set("lock:product:1", "1", { NX: true, EX: 5 });        // only if absent
+await client.setEx("session:abc123", 3600, sessionId);                // SET + EX in one call
+
+const value = await client.get("product:1");
+await client.incr("views:product:1");
+await client.incrBy("views:product:1", 5);</code></pre>
+      </div>
+
+      <h3 id="hashes">Hashes</h3>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">hashes.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">await client.hSet("user:1000", { name: "Ada", plan: "pro", logins: 42 });
+const plan = await client.hGet("user:1000", "plan");
+const user = await client.hGetAll("user:1000");   // whole hash as a plain object
+await client.hIncrBy("user:1000", "logins", 1);
+await client.hDel("user:1000", "plan");</code></pre>
+      </div>
+
+      <h3 id="lists">Lists</h3>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">lists.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">await client.lPush("recent:user:1000", "viewed:product:42");
+await client.lTrim("recent:user:1000", 0, 99);      // keep only the newest 100
+const recent = await client.lRange("recent:user:1000", 0, 9);
+
+await client.lPush("job:queue", JSON.stringify(job));
+const next = await client.rPop("job:queue");         // FIFO: push left, pop right</code></pre>
+      </div>
+      <div class="admonition note">
+        <div class="admonition-title">🧭 Blocking commands need their own connection</div>
+        <p>
+          <code>BLPOP</code> and friends hold the connection open until an item arrives (or the
+          timeout hits). On the shared client, that would stall every other command your app sends
+          in the meantime. Run blocking commands on a dedicated connection, the same way pub/sub
+          does below — <code>const worker = client.duplicate(); await worker.connect();</code> — so
+          the rest of your app keeps working while it waits.
+        </p>
+      </div>
+
+      <h3 id="sets">Sets</h3>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">sets.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">await client.sAdd("product:42:tags", ["sale", "electronics", "new"]);
+const isOnSale = await client.sIsMember("product:42:tags", "sale");
+const tags = await client.sMembers("product:42:tags");
+const sharedTags = await client.sInter(["product:42:tags", "product:57:tags"]);</code></pre>
+      </div>
+
+      <h3 id="sorted-sets">Sorted sets</h3>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">sorted-sets.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">await client.zAdd("leaderboard", [
+  { score: 1500, value: "alice" },
+  { score: 1800, value: "bob" },
+]);
+await client.zIncrBy("leaderboard", 50, "alice");
+const top10 = await client.zRange("leaderboard", 0, 9, { REV: true }); // highest first
+const withScores = await client.zRangeWithScores("leaderboard", 0, 9, { REV: true });
+const rank = await client.zRank("leaderboard", "alice");</code></pre>
+      </div>
+
+      <h2 id="transactions">Batching and transactions: <code>multi()</code></h2>
+      <p>
+        Chain commands on <code>client.multi()</code> and they're queued client-side, then sent and
+        executed as one atomic <code>MULTI</code>/<code>EXEC</code> block when you call
+        <code>.exec()</code> — matching the guarantee from <a href="redis-concepts.html#multi-exec">Redis
+        Concepts</a>: nothing else runs in between.
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">transaction.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const results = await client
+  .multi()
+  .incr("page:views")
+  .expire("page:views", 86400)
+  .exec();
+// results is an array, one entry per queued command, in order</code></pre>
+      </div>
+      <p>
+        For the check-then-write pattern that needs <code>WATCH</code>, call it before you read the
+        value your decision depends on:
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">optimistic-lock.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">async function decrementIfInStock(key) {
+  await client.watch(key);
+  const stock = Number(await client.get(key));
+
+  if (stock &lt;= 0) {
+    await client.unwatch();
+    return false;
+  }
+
+  const result = await client.multi().decr(key).exec();
+  // result is null if `key` changed since watch() — someone else got there first
+  return result !== null;
+}</code></pre>
+      </div>
+
+      <h2 id="pubsub">Pub/Sub: always a duplicated connection</h2>
+      <p>
+        This is the detail that trips people up first: once a connection issues
+        <code>SUBSCRIBE</code>, node-redis puts it into subscriber mode, and a client in subscriber
+        mode can't run ordinary commands anymore. The standard, documented pattern is
+        <code>client.duplicate()</code> — it returns a new client pointed at the same connection
+        settings, ready to become a dedicated subscriber while your original client keeps handling
+        everything else.
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">pubsub.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const subscriber = client.duplicate();
+await subscriber.connect();
+
+await subscriber.subscribe("cache-invalidations", (message) => {
+  console.log("invalidate:", message);
+  localCache.delete(message);
+});
+
+// publish from the original client (or any other connected client) —
+// never from `subscriber` itself, it's dedicated now
+await client.publish("cache-invalidations", "product:42");</code></pre>
+      </div>
+      <p>
+        See <a href="invalidation-at-scale.html">Invalidation at Scale</a> for the full picture of
+        why this pattern matters: it's how one instance tells every other instance in a fleet
+        "your local cache of this key is now wrong."
+      </p>
+
+      <h2 id="scripting">Lua scripts with <code>EVAL</code></h2>
+      <p>
+        For atomic logic that needs actual branching — which <code>MULTI</code>/<code>EXEC</code>
+        can't do — pass a Lua script directly. <code>KEYS</code> and <code>ARGV</code> inside the
+        script map to the <code>keys</code> and <code>arguments</code> arrays you pass in.
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">safe-unlock.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">// only delete the lock if it still holds the token we set — otherwise we might
+// delete a lock that a *different* client has since legitimately acquired
+const UNLOCK_SCRIPT = `
+  if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("DEL", KEYS[1])
+  else
+    return 0
+  end
+`;
+
+await client.eval(UNLOCK_SCRIPT, {
+  keys: ["lock:product:1"],
+  arguments: [lockToken],
+});</code></pre>
+      </div>
+      <p>This exact script is what the distributed lock pattern further down uses to release safely.</p>
+
+      <h2 id="cluster">Beyond a single instance: Cluster</h2>
+      <p>
+        A single Redis instance runs on one machine's RAM and one CPU core for command execution —
+        Cluster mode shards keys across multiple Redis nodes so both memory and throughput scale
+        horizontally. node-redis talks to a cluster through a separate constructor,
+        <code>createCluster</code>, which handles routing each command to the right node
+        automatically:
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">cluster.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const { createCluster } = require("redis");
+
+const cluster = createCluster({
+  rootNodes: [
+    { url: "redis://127.0.0.1:7000" },
+    { url: "redis://127.0.0.1:7001" },
+    { url: "redis://127.0.0.1:7002" },
+  ],
+});
+cluster.on("error", (err) => console.error("Redis cluster error:", err));
+await cluster.connect();
+
+// used exactly like a normal client — the cluster figures out which node owns the key
+await cluster.set("product:1", "...");</code></pre>
+      </div>
+      <p>
+        Once your commands touch <code>cluster</code> instead of <code>client</code>, the API you
+        already learned above doesn't change. What does change: multi-key commands (like
+        <code>MGET</code> across several keys, or a <code>MULTI</code> transaction) only work
+        atomically if every key involved happens to hash to the <em>same</em> cluster node — in
+        practice, this means using "hash tags" — <code>{user:1000}:profile</code> and
+        <code>{user:1000}:settings</code> — the braces force both keys onto the same node —
+        for anything that must be transactional together. Most teams don't reach for Cluster until a
+        single instance's memory or CPU genuinely becomes the bottleneck — it's real added
+        operational complexity, not a default to start with.
+      </p>
+
+      <h2 id="sessions">Sessions: <code>connect-redis</code></h2>
+      <p>
+        For an Express app using <code>express-session</code>, storing sessions in Redis instead of
+        memory is what makes sessions survive a restart and work correctly across multiple app
+        instances behind a load balancer. <code>connect-redis</code> is the standard store adapter,
+        built directly on top of the client you already have:
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">session.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const session = require("express-session");
+const { RedisStore } = require("connect-redis");
+const { client } = require("./redis");
+
+app.use(
+  session({
+    store: new RedisStore({ client, prefix: "sess:" }),
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 1000 * 60 * 60 * 24 }, // 1 day
+  })
+);</code></pre>
+      </div>
+      <p>
+        <code>connect-redis</code>'s exact import shape has changed across major versions — check
+        which one your <code>package.json</code> has pinned before copying this verbatim.
+      </p>
+
+      <h2 id="patterns">Production patterns</h2>
+
+      <h3 id="fail-open">Fail open</h3>
+      <p>
+        A cache read or write that throws should degrade to "treat it as a miss," not crash the
+        request — a Redis outage should slow your app down, not take it down. Every helper below
+        builds on this shape:
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">cache-aside.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">async function getOrSet(key, ttlSeconds, loader) {
+  let cached = null;
+  try {
+    cached = await client.get(key);
+  } catch (err) {
+    console.error("Redis GET failed, falling back to source:", err);
+  }
+  if (cached !== null) return JSON.parse(cached);
+
+  const value = await loader();
+
+  try {
+    await client.set(key, JSON.stringify(value), { EX: ttlSeconds });
+  } catch (err) {
+    console.error("Redis SET failed, continuing without caching:", err);
+  }
+
+  return value;
+}
+
+// usage
+const product = await getOrSet(`product:${id}`, 300, () => db.fetchProduct(id));</code></pre>
+      </div>
+
+      <h3 id="stampede">Cache stampede prevention</h3>
+      <p>
+        When a hot key expires, a burst of concurrent requests can all miss at once and all hammer
+        the database to recompute the same value simultaneously. The standard fix: the first request
+        to see a miss takes a short-lived lock and does the work; everyone else either waits briefly
+        and retries the cache, or falls back to the database directly if the lock holder is too slow.
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">stampede-safe.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">async function getOrSetSafely(key, ttlSeconds, loader) {
+  const cached = await client.get(key);
+  if (cached !== null) return JSON.parse(cached);
+
+  const lockKey = `lock:${key}`;
+  const gotLock = await client.set(lockKey, "1", { NX: true, EX: 10 });
+
+  if (gotLock) {
+    try {
+      const value = await loader();
+      await client.set(key, JSON.stringify(value), { EX: ttlSeconds });
+      return value;
+    } finally {
+      await client.del(lockKey);
+    }
+  }
+
+  // someone else is already recomputing it — wait briefly, then just re-check the cache
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const retry = await client.get(key);
+  if (retry !== null) return JSON.parse(retry);
+
+  // lock holder still isn't done — fall back to the source directly rather than block forever
+  return loader();
+}</code></pre>
+      </div>
+      <p>
+        This trades a small amount of extra complexity for turning "N requests all hit the
+        database" into "one request hits the database, N-1 wait a beat." See
+        <a href="invalidation-at-scale.html">Invalidation at Scale</a> for the pub/sub-driven
+        version of this same idea across many server instances.
+      </p>
+
+      <h3 id="rate-limiting">Rate limiting</h3>
+      <p>
+        The simplest correct rate limiter is <code>INCR</code> plus an expiring window — atomic by
+        construction, no lock needed:
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">fixed-window-limiter.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">async function isAllowed(userId, limit = 100, windowSeconds = 60) {
+  const key = `ratelimit:${userId}:${Math.floor(Date.now() / 1000 / windowSeconds)}`;
+  const count = await client.incr(key);
+  if (count === 1) {
+    await client.expire(key, windowSeconds); // only set TTL on the first hit in this window
+  }
+  return count &lt;= limit;
+}</code></pre>
+      </div>
+      <p>
+        This is a <strong>fixed window</strong> — it resets sharply at each window boundary, which
+        means a burst right at the edge of two windows can briefly let through close to double the
+        limit. A <strong>sliding window</strong>, built on a sorted set with timestamps as scores,
+        fixes that at the cost of a little more work per request:
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">sliding-window-limiter.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">async function isAllowedSliding(userId, limit = 100, windowSeconds = 60) {
+  const key = `ratelimit:sliding:${userId}`;
+  const now = Date.now();
+  const windowStart = now - windowSeconds * 1000;
+
+  await client.zRemRangeByScore(key, 0, windowStart); // drop requests older than the window
+  const count = await client.zCard(key);
+
+  if (count >= limit) return false;
+
+  await client.zAdd(key, [{ score: now, value: `${now}-${Math.random()}` }]);
+  await client.expire(key, windowSeconds);
+  return true;
+}</code></pre>
+      </div>
+      <p>
+        Each member needs to be unique even for requests in the same millisecond, hence the random
+        suffix — <code>ZADD</code> silently no-ops on a duplicate member instead of adding a second
+        entry.
+      </p>
+
+      <h3 id="distributed-lock">Distributed locks</h3>
+      <p>
+        <code>SET key token NX PX ttl</code> is the standard single-instance-Redis lock: it succeeds
+        only if no one else holds the lock, and the TTL guarantees it's eventually released even if
+        the holder crashes before unlocking explicitly. The token matters — it's how you avoid
+        releasing a lock that isn't yours anymore (yours expired, someone else acquired it, and then
+        your original code finally gets around to calling <code>DEL</code>).
+      </p>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">lock.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const crypto = require("crypto");
+
+async function withLock(resource, ttlMs, fn) {
+  const token = crypto.randomUUID();
+  const acquired = await client.set(`lock:${resource}`, token, { NX: true, PX: ttlMs });
+  if (!acquired) throw new Error(`Could not acquire lock: ${resource}`);
+
+  try {
+    return await fn();
+  } finally {
+    // the Lua script from earlier — only delete if we still hold it
+    await client.eval(UNLOCK_SCRIPT, { keys: [`lock:${resource}`], arguments: [token] });
+  }
+}
+
+await withLock("inventory:sku42", 5000, async () => {
+  // exclusive section — only one process runs this at a time
+});</code></pre>
+      </div>
+      <div class="admonition warning">
+        <div class="admonition-title">⚠️ This lock is good enough for almost everything — know its limit</div>
+        <p>
+          A single-instance lock like this one is correct as long as that one Redis instance stays
+          up. If you're running Redis Sentinel or a similar multi-node setup and need a lock that
+          survives a failover without a brief window where two processes could both believe they
+          hold it, that's the harder problem the <strong>Redlock</strong> algorithm addresses — and
+          it's genuinely debated among distributed-systems practitioners whether it fully delivers
+          that guarantee under real-world clock behavior. Reach for it only once you've confirmed you
+          actually need cross-failover correctness, not as a default upgrade.
+        </p>
+      </div>
+
+      <h2 id="testing">Testing</h2>
+      <p>
+        Redis's own semantics — TTL races, atomic increments, eviction — are exactly the parts a
+        mock is least likely to reproduce faithfully. The <a href="testing-observability.html">Testing
+        &amp; Observability</a> guide covers this in depth; the short version for Node.js: run a real
+        Redis in CI (a Docker container is one line —
+        <code>docker run -p 6379:6379 redis</code>, or a <code>testcontainers-node</code>
+        Redis module if your suite already uses testcontainers for other services) rather than
+        mocking the client. Point <code>REDIS_URL</code> at it and use the exact same client code
+        your app runs in production.
+      </p>
+
+      <h2 id="pitfalls">Common pitfalls, checked against everything above</h2>
+      <div class="admonition danger">
+        <div class="admonition-title">🚫 Checklist before shipping</div>
+        <ul style="margin-bottom:0;">
+          <li><strong>A new client per request.</strong> Create one client at module load, reuse it everywhere — see <a href="#install">Installing and creating the client</a>.</li>
+          <li><strong>No <code>error</code> listener.</strong> An unhandled error event on the client crashes the whole Node process, not just the request that triggered it.</li>
+          <li><strong>Forgetting <code>await client.connect()</code>.</strong> Every command will simply hang waiting for a connection that was never opened.</li>
+          <li><strong>Running normal commands on a subscribed connection.</strong> Once a client calls <code>subscribe()</code>, give it nothing else to do — <code>duplicate()</code> for everything else.</li>
+          <li><strong>Caching without a TTL.</strong> An unbounded cache with <code>noeviction</code> set (the Redis default) will eventually fail every write — see <a href="redis-concepts.html#eviction">Eviction</a>.</li>
+          <li><strong><code>KEYS pattern*</code> in request-handling code.</strong> Blocks the entire server while it walks the keyspace. Use <code>SCAN</code>/<code>scanIterator</code> instead, always.</li>
+        </ul>
+      </div>
+
+      <h2 id="recap">Recap</h2>
+      <ul>
+        <li>One client per process, created once, reused everywhere — never per-request.</li>
+        <li>Multi-word Redis commands map to camelCase methods; Redis's own uppercase options (<code>EX</code>, <code>NX</code>, <code>REV</code>) become an options object with the same keys.</li>
+        <li><code>multi()</code>/<code>.exec()</code> gives atomic batching; add <code>watch()</code> for safe check-then-write; reach for <code>eval()</code> when you need real branching logic to stay atomic.</li>
+        <li>Pub/sub and blocking list commands both need a <code>duplicate()</code>-d connection, because a client busy waiting can't run anything else.</li>
+        <li>The recurring production patterns — stampede-safe caching, rate limiting, distributed locks — are all built from the same handful of primitives: <code>SET NX</code>, <code>INCR</code>, sorted sets, and Lua scripts for the parts that need branching.</li>
+      </ul>
+
+      <div class="next-page">
+        <a href="redis-concepts.html">
+          <div class="dir">Back</div>
+          <div class="label">← Redis Concepts</div>
+        </a>
+        <a href="caching-libraries.html" class="next">
+          <div class="dir">Next</div>
+          <div class="label">Caching Libraries →</div>
+        </a>
+      </div>
+    </main>
+  </div>
+
+  <aside class="toc">
+    <div class="toc-inner">
+      <div class="toc-title">On this page</div>
+      <div class="toc-links"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="sidebar-backdrop"></div>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="../js/main.js"></script>
+</body>
+</html>

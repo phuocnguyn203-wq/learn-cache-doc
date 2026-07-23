@@ -40,7 +40,8 @@
       <div class="sidebar-title">Production Guides</div>
       <nav>
         <a href="patterns.html">Caching Patterns</a>
-        <a href="redis.html">Redis</a>
+        <a href="redis-concepts.html">Redis Concepts</a>
+        <a href="redis-nodejs.html">Redis with Node.js</a>
         <a href="caching-libraries.html">Caching Libraries</a>
         <a href="http-caching-advanced.html">Advanced HTTP Caching</a>
         <a href="invalidation-at-scale.html" class="active">Invalidation at Scale</a>
@@ -94,7 +95,7 @@ async function listenForInvalidations(r) {
         message-loop to write. Note also <code>r.duplicate()</code>: a Redis connection that's
         subscribed to a channel can't issue ordinary commands on that same connection, so it needs its
         own dedicated connection, separate from the one your app uses for everything else. See
-        <a href="redis.html">Redis</a> if <code>duplicate()</code> is new to you.
+        <a href="redis-nodejs.html">Redis with Node.js</a> if <code>duplicate()</code> is new to you.
       </p>
       <p>
         <code>listenForInvalidations</code> runs once per instance, started right after your main

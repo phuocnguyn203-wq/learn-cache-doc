@@ -5,10 +5,10 @@ A small, static, FastAPI-docs-styled site that teaches caching two ways:
 - **Learn** — eight short lessons that build every core idea up from zero, one at a time — cache
   stores, keys, TTL, eviction, invalidation, HTTP caching — with every line of code explained, in
   plain Node.js (Express). No prior caching knowledge assumed.
-- **Guides** — six practical, production-grade references for developers who already know that
-  vocabulary: a from-zero, ELI5 introduction to Redis and node-redis, a real caching library
-  (apicache), standard pattern names, and the trade-offs a professional team weighs when caching
-  ships to production. Every example is real, runnable Node.js/Express code.
+- **Guides** — seven practical, production-grade references for developers who already know that
+  vocabulary: a deep-dive on Redis itself and on using it from Node.js (node-redis), a real caching
+  library (apicache), standard pattern names, and the trade-offs a professional team weighs when
+  caching ships to production. Every example is real, runnable Node.js/Express code.
 
 Plain HTML/CSS/JS, no build step, no framework — just open it or host it as static files.
 
@@ -27,9 +27,10 @@ learn/invalidation.html               6. Invalidation (clearing a cache entry on
 learn/http-caching.html                7. HTTP caching (the Cache-Control header)
 learn/putting-it-together.html         8. Full combined example + lesson map
 
-guides/index.html                    Guides hub — links to all six guides
+guides/index.html                    Guides hub — links to all seven guides
 guides/patterns.html                   Cache-Aside, Read-Through, Write-Through, Write-Behind
-guides/redis.html                       Redis from zero, ELI5: what it is, and node-redis basics
+guides/redis-concepts.html              Redis fundamentals: data structures, persistence, eviction, TTL
+guides/redis-nodejs.html                 node-redis in depth: commands, transactions, pub/sub, patterns
 guides/caching-libraries.html            Middleware-based read-through caching with apicache
 guides/http-caching-advanced.html        ETag/304, Vary, stale-while-revalidate, CDN edge caching
 guides/invalidation-at-scale.html        Pub/sub invalidation, distributed locks, XFetch
