@@ -4,13 +4,11 @@ A small, static, FastAPI-docs-styled site that teaches caching two ways:
 
 - **Learn** — eight short lessons that build every core idea up from zero, one at a time — cache
   stores, keys, TTL, eviction, invalidation, HTTP caching — with every line of code explained, in
-  plain FastAPI (Python). No prior caching knowledge assumed.
-- **Guides** — eight practical, production-grade references for developers who already know that
-  vocabulary: Redis concepts and its command API, real libraries (fastapi-cache2, apicache),
-  standard pattern names, and the trade-offs a professional team weighs when caching ships to
-  production. Most guides are shown in both **FastAPI (Python)** and **Express (Node.js)**,
-  switchable via the tabs above each code block; the Node.js-specific Redis guide goes deep on
-  node-redis alone.
+  plain Node.js (Express). No prior caching knowledge assumed.
+- **Guides** — six practical, production-grade references for developers who already know that
+  vocabulary: a from-zero, ELI5 introduction to Redis and node-redis, a real caching library
+  (apicache), standard pattern names, and the trade-offs a professional team weighs when caching
+  ships to production. Every example is real, runnable Node.js/Express code.
 
 Plain HTML/CSS/JS, no build step, no framework — just open it or host it as static files.
 
@@ -21,23 +19,21 @@ index.html                          Home page
 
 learn/index.html                     Learn hub — links to all eight lessons
 learn/what-is-caching.html            1. Introduction (no code, analogies + vocabulary)
-learn/your-first-cache.html           2. Your first cache (a plain dict, hit/miss)
+learn/your-first-cache.html           2. Your first cache (a plain object, hit/miss)
 learn/cache-keys.html                 3. Cache keys (a real bug, then the fix)
-learn/ttl.html                        4. TTL & expiration (time.time(), shelf life)
-learn/eviction.html                   5. Eviction (hand-built LRU with OrderedDict)
+learn/ttl.html                        4. TTL & expiration (Date.now(), shelf life)
+learn/eviction.html                   5. Eviction (hand-built LRU with a JS Map)
 learn/invalidation.html               6. Invalidation (clearing a cache entry on write)
 learn/http-caching.html                7. HTTP caching (the Cache-Control header)
 learn/putting-it-together.html         8. Full combined example + lesson map
 
-guides/index.html                    Guides hub — links to all eight guides
+guides/index.html                    Guides hub — links to all six guides
 guides/patterns.html                   Cache-Aside, Read-Through, Write-Through, Write-Behind
-guides/redis-concepts.html              Redis fundamentals: data structures, persistence, eviction, TTL
-guides/redis-caching.html               Redis lifecycle, DI, the core Redis command API, fail-open
-guides/redis-nodejs.html                 node-redis in depth: commands, transactions, pub/sub, patterns
-guides/fastapi-cache2.html               Decorator/middleware caching: fastapi-cache2 & apicache
+guides/redis.html                       Redis from zero, ELI5: what it is, and node-redis basics
+guides/caching-libraries.html            Middleware-based read-through caching with apicache
 guides/http-caching-advanced.html        ETag/304, Vary, stale-while-revalidate, CDN edge caching
 guides/invalidation-at-scale.html        Pub/sub invalidation, distributed locks, XFetch
-guides/testing-observability.html        fakeredis/testcontainers, fake timers, hit-rate metrics
+guides/testing-observability.html        testcontainers, fake timers, hit-rate metrics
 
 css/style.css                        Dark theme design system
 js/main.js                           Copy buttons, mobile nav, on-page TOC, code tabs
@@ -50,8 +46,8 @@ the smoothest experience (and to match how it'll behave on GitHub Pages), serve 
 file server, for example:
 
 ```bash
-python -m http.server 8000
-# then visit http://localhost:8000
+npx serve .
+# then visit the URL it prints
 ```
 
 ## Hosting on GitHub Pages
@@ -69,6 +65,4 @@ at your actual repository.
 
 - Syntax highlighting uses [Prism.js](https://prismjs.com/) loaded from a CDN — an internet
   connection is needed for highlighted code when viewing the page.
-- `js/main.js`'s FastAPI/Express code tab switcher is used throughout Guides; Learn stays
-  Python-only by design, so those pages don't render the tab buttons at all. The switcher remembers
-  your last-picked language across pages via `localStorage`.
+- The site is Node.js/Express-only throughout — no framework tab switcher, no Python.

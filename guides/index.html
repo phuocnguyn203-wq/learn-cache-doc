@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Guides — Cache Docs</title>
-<meta name="description" content="Practical, production-grade caching guides for professional developers: real libraries, standard patterns, and the trade-offs that matter at scale, in FastAPI and Express.">
+<meta name="description" content="Practical, production-grade caching guides for professional developers: real libraries, standard patterns, and the trade-offs that matter at scale, in Node.js.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 <link rel="stylesheet" href="../css/style.css">
 </head>
@@ -40,10 +40,8 @@
       <div class="sidebar-title">Production Guides</div>
       <nav>
         <a href="patterns.html">Caching Patterns</a>
-        <a href="redis-concepts.html">Redis Concepts</a>
-        <a href="redis-caching.html">Redis Caching</a>
-        <a href="redis-nodejs.html">Redis with Node.js</a>
-        <a href="fastapi-cache2.html">Caching Libraries</a>
+        <a href="redis.html">Redis</a>
+        <a href="caching-libraries.html">Caching Libraries</a>
         <a href="http-caching-advanced.html">Advanced HTTP Caching</a>
         <a href="invalidation-at-scale.html">Invalidation at Scale</a>
         <a href="testing-observability.html">Testing &amp; Observability</a>
@@ -58,7 +56,7 @@
         The <a href="../learn/index.html">Learn</a> section builds caching up from zero, one idea at a
         time. These guides start where that leaves off: standard terminology, real libraries, and the
         trade-offs a professional team actually weighs when caching goes into production. Every
-        example is shown in both <strong>FastAPI (Python)</strong> and <strong>Express (Node.js)</strong>.
+        example is real, runnable <strong>Node.js (Express)</strong> code.
       </p>
 
       <div class="admonition note">
@@ -78,29 +76,17 @@
           <p>Cache-Aside, Read-Through, Write-Through, and Write-Behind — formal definitions and a trade-off table.</p>
           <p class="read-time" style="margin-top:10px;">~11 min read</p>
         </a>
-        <a class="card" href="redis-concepts.html">
-          <span class="pill basic">Redis</span>
-          <h3>Redis Concepts</h3>
-          <p>What Redis actually is: data structures, persistence, eviction policies, expiration mechanics, transactions, and pub/sub.</p>
-          <p class="read-time" style="margin-top:10px;">~15 min read</p>
+        <a class="card" href="redis.html">
+          <span class="pill intro">Beginner friendly</span>
+          <h3>Redis</h3>
+          <p>A friendly, from-zero introduction: what Redis actually is, getting one running, and talking to it with node-redis.</p>
+          <p class="read-time" style="margin-top:10px;">~12 min · hands-on</p>
         </a>
-        <a class="card" href="redis-caching.html">
-          <span class="pill basic">Redis</span>
-          <h3>Redis Caching</h3>
-          <p>Connection lifecycle, dependency access patterns, the core Redis command API, serialization, and fail-open error handling.</p>
-          <p class="read-time" style="margin-top:10px;">~16 min · hands-on</p>
-        </a>
-        <a class="card" href="redis-nodejs.html">
-          <span class="pill basic">Redis</span>
-          <h3>Redis with Node.js</h3>
-          <p>The standard node-redis way: client setup, every command family, transactions, pub/sub, rate limiting, and distributed locks.</p>
-          <p class="read-time" style="margin-top:10px;">~20 min · hands-on</p>
-        </a>
-        <a class="card" href="fastapi-cache2.html">
+        <a class="card" href="caching-libraries.html">
           <span class="pill basic">Library</span>
           <h3>Caching Libraries</h3>
-          <p>Decorator- and middleware-based caching with real packages: fastapi-cache2 and apicache.</p>
-          <p class="read-time" style="margin-top:10px;">~11 min · hands-on</p>
+          <p>Middleware-based read-through caching with a real package: apicache, backed by Redis.</p>
+          <p class="read-time" style="margin-top:10px;">~9 min · hands-on</p>
         </a>
         <a class="card" href="http-caching-advanced.html">
           <span class="pill basic">HTTP</span>
@@ -117,7 +103,7 @@
         <a class="card" href="testing-observability.html">
           <span class="pill basic">Ops</span>
           <h3>Testing &amp; Observability</h3>
-          <p><code>fakeredis</code>/<code>testcontainers</code> and fake timers for deterministic tests, plus measuring hit rate in production.</p>
+          <p><code>testcontainers</code> and fake timers for deterministic tests, plus measuring hit rate in production.</p>
           <p class="read-time" style="margin-top:10px;">~11 min · hands-on</p>
         </a>
       </div>
@@ -125,7 +111,7 @@
       <h2 id="prerequisites">Prerequisites</h2>
       <ul>
         <li>Comfortable with the vocabulary and patterns from <a href="../learn/index.html">Learn</a>: cache hit/miss, TTL, keys, eviction, invalidation.</li>
-        <li>A working FastAPI <strong>or</strong> Express project — you don't need both, pick the tab that matches your stack.</li>
+        <li>A working Node.js/Express project, or enough comfort with either to follow along.</li>
         <li>Redis (local install or Docker) is needed for most examples: <code>docker run -p 6379:6379 redis</code>.</li>
         <li>These guides don't build on each other in strict order — read whichever one matches the problem in front of you.</li>
       </ul>

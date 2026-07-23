@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cache Docs — Learn Caching for Web Developers</title>
-<meta name="description" content="A friendly, hands-on guide to caching, built from zero — eight short lessons, each explaining its FastAPI (Python) code line by line.">
+<meta name="description" content="A friendly, hands-on guide to caching, built from zero — eight short lessons, each explaining its Node.js (Express) code line by line.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -35,7 +35,7 @@
         <h1>Learn <span>caching</span>,<br>one honest analogy at a time.</h1>
         <p class="hero-lede">
           Never touched caching before? Good — that's the assumption this guide starts from. Eight short
-          lessons build it up one small idea at a time, in plain <strong>FastAPI (Python)</strong>, with
+          lessons build it up one small idea at a time, in plain <strong>Node.js (Express)</strong>, with
           every single line of code explained.
         </p>
         <div class="hero-ctas">
@@ -83,7 +83,7 @@
           <a class="card" href="learn/your-first-cache.html">
             <span class="pill basic">2</span>
             <h3>Your First Cache</h3>
-            <p>Build a slow endpoint, then speed it up with a plain Python dictionary — every line explained.</p>
+            <p>Build a slow endpoint, then speed it up with a plain JavaScript object — every line explained.</p>
           </a>
           <a class="card" href="learn/cache-keys.html">
             <span class="pill basic">3</span>
@@ -93,7 +93,7 @@
           <a class="card" href="learn/putting-it-together.html">
             <span class="pill basic">8</span>
             <h3>Putting It Together</h3>
-            <p>Every piece combined into one complete, realistic FastAPI file.</p>
+            <p>Every piece combined into one complete, realistic Express file.</p>
           </a>
         </div>
         <div style="text-align:center; margin-top:8px;">
@@ -103,28 +103,31 @@
 
       <section class="section">
         <h2 class="section-title">Every line, explained</h2>
-        <p class="section-sub">No black boxes. Each lesson builds its code up piece by piece, in plain FastAPI.</p>
+        <p class="section-sub">No black boxes. Each lesson builds its code up piece by piece, in plain Node.js.</p>
 
         <div class="code-block">
           <div class="code-block-header">
-            <span class="code-filename">main.py</span>
+            <span class="code-filename">server.js</span>
             <button class="copy-btn">Copy</button>
           </div>
-          <pre><code class="language-python">cache = {}
+          <pre><code class="language-javascript">const cache = {};
 
-@app.get("/weather/{city}")
-def get_weather(city: str):
-    if city in cache:
-        return cache[city]  # cache hit — skip the slow work
+app.get("/weather/:city", async (req, res) => {
+  const city = req.params.city;
 
-    time.sleep(3)  # pretend this is a slow call to a weather service
-    weather = {"city": city, "temperature": 24}
-    cache[city] = weather  # cache miss — save it for next time
-    return weather</code></pre>
+  if (city in cache) {
+    return res.json(cache[city]); // cache hit — skip the slow work
+  }
+
+  await sleep(3000); // pretend this is a slow call to a weather service
+  const weather = { city, temperature: 24 };
+  cache[city] = weather; // cache miss — save it for next time
+  res.json(weather);
+});</code></pre>
         </div>
 
         <div class="stack-badges">
-          <span class="stack-badge">🐍 FastAPI</span>
+          <span class="stack-badge">🟢 Node.js</span>
           <span class="stack-badge">🧠 In-memory caching</span>
           <span class="stack-badge">⏳ TTL</span>
           <span class="stack-badge">🌐 HTTP cache headers</span>
@@ -133,17 +136,17 @@ def get_weather(city: str):
 
       <section class="section">
         <h2 class="section-title">Ready for production?</h2>
-        <p class="section-sub">Once the fundamentals click, <a href="guides/index.html">Guides</a> picks up where Learn leaves off — real libraries, standard terminology, and the trade-offs a professional team weighs when caching ships to production. Every guide covers both <strong>FastAPI</strong> and <strong>Express</strong>.</p>
+        <p class="section-sub">Once the fundamentals click, <a href="guides/index.html">Guides</a> picks up where Learn leaves off — real libraries, standard terminology, and the trade-offs a professional team weighs when caching ships to production.</p>
         <div class="card-grid">
           <a class="card" href="guides/patterns.html">
             <span class="pill basic">Patterns</span>
             <h3>Caching Patterns</h3>
             <p>Cache-Aside, Read-Through, Write-Through, Write-Behind — formal definitions and trade-offs.</p>
           </a>
-          <a class="card" href="guides/redis-caching.html">
+          <a class="card" href="guides/redis.html">
             <span class="pill basic">Redis</span>
-            <h3>Redis Caching</h3>
-            <p>Connection lifecycle, the core Redis command API, and fail-open error handling.</p>
+            <h3>Redis</h3>
+            <p>A friendly, from-zero introduction to Redis, and using it for real with node-redis.</p>
           </a>
           <a class="card" href="guides/invalidation-at-scale.html">
             <span class="pill basic">Scale</span>
@@ -152,7 +155,7 @@ def get_weather(city: str):
           </a>
         </div>
         <div style="text-align:center; margin-top:8px;">
-          <a href="guides/index.html">See all eight guides →</a>
+          <a href="guides/index.html">See all six guides →</a>
         </div>
       </section>
 

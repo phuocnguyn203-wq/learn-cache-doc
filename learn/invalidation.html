@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Invalidation — Cache Docs</title>
-<meta name="description" content="TTL alone isn't always fast enough. Learn how to deliberately clear a cached answer the moment you know it's wrong, in FastAPI.">
+<meta name="description" content="TTL alone isn't always fast enough. Learn how to deliberately clear a cached answer the moment you know it's wrong, in Node.js.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 <link rel="stylesheet" href="../css/style.css">
 </head>
@@ -56,7 +56,7 @@
 
       <div class="page-meta">
         <span class="pill basic">Lesson 6 of 8</span>
-        <span class="read-time">~8 min · hands-on · Python/FastAPI</span>
+        <span class="read-time">~8 min · hands-on · Node.js</span>
       </div>
       <h1>Invalidation</h1>
       <p class="lede">
@@ -67,7 +67,7 @@
 
       <div class="admonition note">
         <div class="admonition-title">🧒 Setting eviction aside for a moment</div>
-        <p>To keep this lesson focused, we'll go back to the plain dict cache from <a href="cache-keys.html">Lesson 3</a>, without the size limit from Lesson 5. Lesson 8 brings everything back together.</p>
+        <p>To keep this lesson focused, we'll go back to the plain object cache from <a href="cache-keys.html">Lesson 3</a>, without the size limit from Lesson 5. Lesson 8 brings everything back together.</p>
       </div>
 
       <h2 id="the-problem">The problem TTL doesn't fully solve</h2>
@@ -93,11 +93,15 @@
           <h3>Add a way to correct the data</h3>
           <p>Let's add an endpoint that lets an admin manually fix a city's temperature:</p>
           <div class="code-block">
-            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-            <pre><code class="language-python">@app.put("/weather/{city}")
-def correct_weather(city: str, temperature: float, units: str = "celsius"):
-    save_weather_to_database(city, temperature, units)  # pretend this updates the real record
-    ...</code></pre>
+            <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-javascript">app.put("/weather/:city", async (req, res) => {
+  const city = req.params.city;
+  const units = req.query.units || "celsius";
+  const temperature = Number(req.query.temperature);
+
+  saveWeatherToDatabase(city, temperature, units); // pretend this updates the real record
+  // ...
+});</code></pre>
           </div>
         </div>
       </div>
@@ -107,59 +111,65 @@ def correct_weather(city: str, temperature: float, units: str = "celsius"):
         <div class="step-body">
           <h3>Forget the cached answer for this exact key</h3>
           <div class="code-block">
-            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-            <pre><code class="language-python">cache_key = f"{city}:{units}"
-if cache_key in cache:
-    del cache[cache_key]
+            <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-javascript">const cacheKey = `${city}:${units}`;
+delete cache[cacheKey];
 
-return {"status": "updated"}</code></pre>
+res.json({ status: "updated" });</code></pre>
           </div>
+          <p>
+            Unlike Python's <code>del</code>, JavaScript's <code>delete</code> operator never complains
+            if the key isn't there — deleting something that doesn't exist is simply a no-op. So there's
+            no need to check <code>cacheKey in cache</code> first; it's always safe to call directly.
+          </p>
         </div>
       </div>
 
       <h2 id="full-code">The full file</h2>
       <div class="code-block-tight">
-        <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-python">import time
-from fastapi import FastAPI
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const cache = {};
 
-app = FastAPI()
-cache = {}
+app.get("/weather/:city", async (req, res) => {
+  const city = req.params.city;
+  const units = req.query.units || "celsius";
+  const cacheKey = `${city}:${units}`;
 
-@app.get("/weather/{city}")
-def get_weather(city: str, units: str = "celsius"):
-    cache_key = f"{city}:{units}"
+  if (cacheKey in cache) {
+    return res.json(cache[cacheKey]);
+  }
 
-    if cache_key in cache:
-        return cache[cache_key]
+  await sleep(3000);
+  const temperature = units === "celsius" ? 24 : 75;
+  const weather = { city, temperature, units };
+  cache[cacheKey] = weather;
+  res.json(weather);
+});
 
-    time.sleep(3)
-    temperature = 24 if units == "celsius" else 75
-    weather = {"city": city, "temperature": temperature, "units": units}
-    cache[cache_key] = weather
-    return weather
+app.put("/weather/:city", async (req, res) => {
+  const city = req.params.city;
+  const units = req.query.units || "celsius";
+  const temperature = Number(req.query.temperature);
 
-@app.put("/weather/{city}")
-def correct_weather(city: str, temperature: float, units: str = "celsius"):
-    save_weather_to_database(city, temperature, units)
+  saveWeatherToDatabase(city, temperature, units);
 
-    cache_key = f"{city}:{units}"
-    if cache_key in cache:
-        del cache[cache_key]
+  const cacheKey = `${city}:${units}`;
+  delete cache[cacheKey];
 
-    return {"status": "updated"}</code></pre>
+  res.json({ status: "updated" });
+});</code></pre>
       </div>
 
       <h2 id="try-it">Try it yourself</h2>
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-bash">curl http://localhost:8000/weather/paris        # ~3s, temperature: 24 (miss, then stored)
-curl http://localhost:8000/weather/paris        # instant, temperature: 24 (hit)
+        <pre><code class="language-bash">curl http://localhost:3000/weather/paris        # ~3s, temperature: 24 (miss, then stored)
+curl http://localhost:3000/weather/paris        # instant, temperature: 24 (hit)
 
-curl -X PUT "http://localhost:8000/weather/paris?temperature=30"
+curl -X PUT "http://localhost:3000/weather/paris?temperature=30"
 # {"status": "updated"} — and the drawer for paris:celsius is now gone
 
-curl http://localhost:8000/weather/paris        # ~3s again — cache miss, fetches the corrected value</code></pre>
+curl http://localhost:3000/weather/paris        # ~3s again — cache miss, fetches the corrected value</code></pre>
       </div>
       <p>The correction takes effect on the very next read — no waiting around for a TTL to run out.</p>
 
@@ -169,8 +179,8 @@ curl http://localhost:8000/weather/paris        # ~3s again — cache miss, fetc
         immediately <em>overwrite</em> the cache with the corrected value, right there in the same endpoint:
       </p>
       <div class="code-block-tight">
-        <div class="code-block-header"><span class="code-filename">alternative to `del`</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-python">cache[cache_key] = {"city": city, "temperature": temperature, "units": units}</code></pre>
+        <div class="code-block-header"><span class="code-filename">alternative to `delete`</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">cache[cacheKey] = { city, temperature, units };</code></pre>
       </div>
       <p>
         Deleting is simpler and always safe. Overwriting avoids one extra slow "miss" on the very next
@@ -182,7 +192,7 @@ curl http://localhost:8000/weather/paris        # ~3s again — cache miss, fetc
       <ul>
         <li><a href="what-is-caching.html#vocabulary">Invalidation</a> means deliberately removing (or refreshing) a cached value the moment you know it's outdated, instead of waiting for a TTL.</li>
         <li>The most common trigger is "whenever the real data is written, touch the cache too."</li>
-        <li><code>del cache[key]</code> is the simplest form of invalidation — clear it and let the next read rebuild it.</li>
+        <li><code>delete cache[key]</code> is the simplest form of invalidation — clear it and let the next read rebuild it.</li>
         <li>Always target invalidation using the <strong>same key-building logic</strong> as the read path, or you'll clear the wrong drawer (or none at all).</li>
       </ul>
 

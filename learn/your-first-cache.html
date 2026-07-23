@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Your First Cache — Cache Docs</title>
-<meta name="description" content="Build the smallest possible cache — a Python dictionary — and use it to skip repeated slow work. Every line of FastAPI code explained from scratch.">
+<meta name="description" content="Build the smallest possible cache — a plain JavaScript object — and use it to skip repeated slow work. Every line of Express code explained from scratch.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 <link rel="stylesheet" href="../css/style.css">
 </head>
@@ -56,11 +56,11 @@
 
       <div class="page-meta">
         <span class="pill basic">Lesson 2 of 8</span>
-        <span class="read-time">~10 min · hands-on · Python/FastAPI</span>
+        <span class="read-time">~10 min · hands-on · Node.js</span>
       </div>
       <h1>Your First Cache</h1>
       <p class="lede">
-        Let's build the smallest possible cache there is: a single Python dictionary. We'll go through
+        Let's build the smallest possible cache there is: a single JavaScript object. We'll go through
         every line of code — assuming nothing — and by the end you'll have a real endpoint that skips
         repeated slow work.
       </p>
@@ -72,18 +72,31 @@
         Here's that endpoint:
       </p>
 
-      <div class="code-block">
-        <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-python">import time
-from fastapi import FastAPI
+      <div class="code-block-tight">
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const express = require("express");
+const app = express();
 
-app = FastAPI()
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-@app.get("/weather/{city}")
-def get_weather(city: str):
-    time.sleep(3)  # pretend this is a slow call to a weather service
-    return {"city": city, "temperature": 24}</code></pre>
+app.get("/weather/:city", async (req, res) => {
+  const city = req.params.city;
+  await sleep(3000); // pretend this is a slow call to a weather service
+  res.json({ city, temperature: 24 });
+});
+
+app.listen(3000);</code></pre>
       </div>
+      <p>
+        A quick word on <code>sleep</code>: Node.js runs your whole server on a single thread, so a real
+        blocking pause (like Python's <code>time.sleep()</code>) would freeze <em>every</em> request, not
+        just this one. <code>sleep</code> here instead returns a <strong>Promise</strong> that resolves
+        after the given number of milliseconds — <code>await</code>ing it pauses only this one request's
+        handler, while the server keeps serving everyone else. This is the standard way to fake (or wait
+        out) a delay in Node without blocking anything.
+      </p>
       <p>
         Run this and visit it a few times — even for the exact same city, every single visit waits the
         full 3 seconds. The server never remembers anything. Let's give it a memory.
@@ -92,14 +105,14 @@ def get_weather(city: str):
       <h2 id="what-is-a-dict">A cache is just a box with labeled drawers</h2>
       <p>
         Picture a box of little drawers. Each drawer has a label — like <em>"Paris"</em> or <em>"Tokyo"</em>
-        — and inside sits a piece of paper with the answer. Python already has exactly this kind of box
-        built in. It's called a <strong>dictionary</strong> (<code>dict</code> for short):
+        — and inside sits a piece of paper with the answer. JavaScript already has exactly this kind of
+        box built in: a plain <strong>object</strong>.
       </p>
-      <div class="code-block">
-        <div class="code-block-header"><span class="code-filename">a plain Python dict, no FastAPI yet</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-python">box = {}            # an empty box, no drawers yet
-box["Paris"] = 24   # put 24 in a new drawer labeled "Paris"
-print(box["Paris"])  # open the "Paris" drawer and read what's inside -> 24</code></pre>
+      <div class="code-block-tight">
+        <div class="code-block-header"><span class="code-filename">a plain JS object, no Express yet</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const box = {};             // an empty box, no drawers yet
+box["Paris"] = 24;          // put 24 in a new drawer labeled "Paris"
+console.log(box["Paris"]);  // open the "Paris" drawer and read what's inside -> 24</code></pre>
       </div>
       <p>
         One more trick we'll use constantly: <code>"Paris" in box</code> asks "does a drawer with this
@@ -114,19 +127,20 @@ print(box["Paris"])  # open the "Paris" drawer and read what's inside -> 24</cod
         <div class="step-body">
           <h3>Create the box — but only once</h3>
           <p>
-            We add one line, <strong>outside</strong> the function, near the top of the file:
+            We add one line, <strong>outside</strong> the request handler, near the top of the file:
           </p>
           <div class="code-block-tight">
-            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-            <pre><code class="language-python">cache = {}</code></pre>
+            <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-javascript">const cache = {};</code></pre>
           </div>
           <div class="admonition note">
             <div class="admonition-title">🧒 Why does it matter where this line lives?</div>
             <p>
-              If we wrote <code>cache = {}</code> <em>inside</em> the function, Python would build a
-              brand-new, empty box every single time someone visited — throwing away whatever we'd
-              saved a moment earlier. Writing it outside the function means it's created <strong>once</strong>,
-              when the server starts up, and it quietly stays alive in memory for as long as the server keeps running.
+              If we wrote <code>const cache = {}</code> <em>inside</em> the request handler, JavaScript
+              would build a brand-new, empty box every single time someone visited — throwing away
+              whatever we'd saved a moment earlier. Writing it outside the handler means it's created
+              <strong>once</strong>, when the server starts up, and it quietly stays alive in memory for
+              as long as the server keeps running.
             </p>
           </div>
         </div>
@@ -138,14 +152,17 @@ print(box["Paris"])  # open the "Paris" drawer and read what's inside -> 24</cod
           <h3>Check the box first — a cache hit</h3>
           <p>Before doing any slow work, look in the box:</p>
           <div class="code-block-tight">
-            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-            <pre><code class="language-python">if city in cache:
-    return cache[city]</code></pre>
+            <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-javascript">if (city in cache) {
+  return res.json(cache[city]);
+}</code></pre>
           </div>
           <p>
             If a drawer with this city's name already exists, we skip everything else and hand back
             what's inside immediately. This is exactly what
-            <a href="what-is-caching.html#vocabulary">a cache hit</a> means.
+            <a href="what-is-caching.html#vocabulary">a cache hit</a> means. The extra <code>return</code>
+            matters here too — without it, the code below would keep running even after we'd already sent
+            a response.
           </p>
         </div>
       </div>
@@ -156,44 +173,52 @@ print(box["Paris"])  # open the "Paris" drawer and read what's inside -> 24</cod
           <h3>If it's not there, do the slow work — then save it</h3>
           <p>This is <a href="what-is-caching.html#vocabulary">a cache miss</a>: the drawer was empty, so we do the real work and fill it in before we leave, so next time is a hit.</p>
           <div class="code-block-tight">
-            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-            <pre><code class="language-python">time.sleep(3)
-weather = {"city": city, "temperature": 24}
-cache[city] = weather
-return weather</code></pre>
+            <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-javascript">await sleep(3000);
+const weather = { city, temperature: 24 };
+cache[city] = weather;
+res.json(weather);</code></pre>
           </div>
         </div>
       </div>
 
       <h2 id="full-code">The full endpoint</h2>
       <p>Put together, here's the whole file:</p>
-      <div class="code-block">
-        <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-python">import time
-from fastapi import FastAPI
+      <div class="code-block-tight">
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const express = require("express");
+const app = express();
 
-app = FastAPI()
-cache = {}
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-@app.get("/weather/{city}")
-def get_weather(city: str):
-    if city in cache:
-        return cache[city]
+const cache = {};
 
-    time.sleep(3)
-    weather = {"city": city, "temperature": 24}
-    cache[city] = weather
-    return weather</code></pre>
+app.get("/weather/:city", async (req, res) => {
+  const city = req.params.city;
+
+  if (city in cache) {
+    return res.json(cache[city]);
+  }
+
+  await sleep(3000);
+  const weather = { city, temperature: 24 };
+  cache[city] = weather;
+  res.json(weather);
+});
+
+app.listen(3000);</code></pre>
       </div>
 
       <h2 id="try-it">Try it yourself</h2>
-      <p>Start the server (<code>uvicorn main:app --reload</code>) and request the same city twice:</p>
+      <p>Start the server (<code>node server.js</code>) and request the same city twice:</p>
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-bash">curl http://localhost:8000/weather/paris
+        <pre><code class="language-bash">curl http://localhost:3000/weather/paris
 # ~3 seconds later: {"city":"paris","temperature":24}
 
-curl http://localhost:8000/weather/paris
+curl http://localhost:3000/weather/paris
 # instantly: {"city":"paris","temperature":24}</code></pre>
       </div>
       <p>The second call comes back immediately. That's your cache working.</p>

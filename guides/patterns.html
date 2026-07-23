@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Caching Patterns — Cache Docs</title>
-<meta name="description" content="Cache-Aside, Read-Through, Write-Through, and Write-Behind — formal definitions, trade-offs, and real code in both FastAPI and Express.">
+<meta name="description" content="Cache-Aside, Read-Through, Write-Through, and Write-Behind — formal definitions, trade-offs, and real Node.js/Express code.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 <link rel="stylesheet" href="../css/style.css">
 </head>
@@ -40,10 +40,8 @@
       <div class="sidebar-title">Production Guides</div>
       <nav>
         <a href="patterns.html" class="active">Caching Patterns</a>
-        <a href="redis-concepts.html">Redis Concepts</a>
-        <a href="redis-caching.html">Redis Caching</a>
-        <a href="redis-nodejs.html">Redis with Node.js</a>
-        <a href="fastapi-cache2.html">Caching Libraries</a>
+        <a href="redis.html">Redis</a>
+        <a href="caching-libraries.html">Caching Libraries</a>
         <a href="http-caching-advanced.html">Advanced HTTP Caching</a>
         <a href="invalidation-at-scale.html">Invalidation at Scale</a>
         <a href="testing-observability.html">Testing &amp; Observability</a>
@@ -56,13 +54,13 @@
 
       <div class="page-meta">
         <span class="pill basic">Guide</span>
-        <span class="read-time">~11 min read · FastAPI &amp; Express</span>
+        <span class="read-time">~11 min read · Node.js</span>
       </div>
       <h1>Caching Patterns</h1>
       <p class="lede">
         Four canonical patterns cover the overwhelming majority of caching architectures you'll
         encounter in production. Their names are standard vocabulary in system design — here's each
-        one precisely defined, with its trade-offs and real code in both FastAPI and Express.
+        one precisely defined, with its trade-offs and real Node.js/Express code.
       </p>
 
       <h2 id="cache-aside">Cache-Aside (Lazy Loading)</h2>
@@ -71,26 +69,9 @@
         source of truth on a miss, and populates the cache itself. The cache never talks to the
         database — it's purely passive storage the application manages.
       </p>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-python">async def get_product(product_id: int) -> dict:
-    cache_key = f"product:{product_id}"
-    cached = await redis.get(cache_key)
-    if cached:
-        return json.loads(cached)
-
-    product = await db.fetch_product(product_id)
-    await redis.set(cache_key, json.dumps(product), ex=300)
-    return product</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-javascript">async function getProduct(productId) {
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">async function getProduct(productId) {
   const cacheKey = `product:${productId}`;
   const cached = await redis.get(cacheKey);
   if (cached) {
@@ -101,7 +82,6 @@
   await redis.set(cacheKey, JSON.stringify(product), { EX: 300 });
   return product;
 }</code></pre>
-        </div>
       </div>
       <table class="kv-table">
         <tbody>
@@ -116,37 +96,9 @@
         miss, the <em>cache itself</em> — not your endpoint code — loads from the source of truth and
         populates itself. From the call site, there's no explicit "miss" branch to write.
       </p>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-python">class ProductCache:
-    def __init__(self, redis: Redis, loader):
-        self.redis = redis
-        self.loader = loader
-
-    async def get(self, product_id: int) -> dict:
-        cache_key = f"product:{product_id}"
-        cached = await self.redis.get(cache_key)
-        if cached:
-            return json.loads(cached)
-
-        value = await self.loader(product_id)
-        await self.redis.set(cache_key, json.dumps(value), ex=300)
-        return value
-
-product_cache = ProductCache(redis, db.fetch_product)
-
-@app.get("/products/{product_id}")
-async def read_product(product_id: int):
-    return await product_cache.get(product_id)</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-javascript">class ProductCache {
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">class ProductCache {
   constructor(redis, loader) {
     this.redis = redis;
     this.loader = loader;
@@ -170,14 +122,13 @@ const productCache = new ProductCache(redis, db.fetchProduct);
 app.get("/products/:productId", async (req, res) => {
   res.json(await productCache.get(Number(req.params.productId)));
 });</code></pre>
-        </div>
       </div>
       <p>
         Notice the mechanics are nearly identical to cache-aside — the difference is architectural,
         not functional: <strong>who owns</strong> the check-load-populate responsibility. Here it's
         centralized in one class instead of duplicated at every call site. The
-        <a href="fastapi-cache2.html">decorator- and middleware-based libraries</a> covered next are
-        read-through implementations — your endpoint never sees a miss at all.
+        <a href="caching-libraries.html">middleware-based libraries</a> covered next are read-through
+        implementations — your endpoint never sees a miss at all.
       </p>
       <table class="kv-table">
         <tbody>
@@ -191,28 +142,15 @@ app.get("/products/:productId", async (req, res) => {
         Every write updates the cache and the underlying store together, before the write is
         acknowledged. Reads immediately after a write always see fresh data.
       </p>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-python">async def update_product(product_id: int, data: ProductUpdate) -> None:
-    await db.save_product(product_id, data)
-    cache_key = f"product:{product_id}"
-    await redis.set(cache_key, data.model_dump_json(), ex=300)</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-javascript">app.put("/products/:productId", async (req, res) => {
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">app.put("/products/:productId", async (req, res) => {
   const productId = Number(req.params.productId);
   await db.saveProduct(productId, req.body);
   const cacheKey = `product:${productId}`;
   await redis.set(cacheKey, JSON.stringify(req.body), { EX: 300 });
   res.json({ status: "updated" });
 });</code></pre>
-        </div>
       </div>
       <table class="kv-table">
         <tbody>
@@ -227,29 +165,9 @@ app.get("/products/:productId", async (req, res) => {
         store later, often batched. This is the pattern for write-heavy, loss-tolerant data —
         view counters, analytics events, telemetry.
       </p>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-python">@app.post("/products/{product_id}/views")
-async def record_view(product_id: int):
-    await redis.incr(f"views:{product_id}")
-    return {"status": "recorded"}
-
-# a separate periodic worker (Celery beat, APScheduler, a cron job, ...)
-async def flush_view_counts():
-    async for key in redis.scan_iter("views:*"):
-        count = await redis.get(key)
-        product_id = int(key.split(":")[1])
-        await db.increment_view_count(product_id, int(count))
-        await redis.delete(key)</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-javascript">app.post("/products/:productId/views", async (req, res) => {
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">app.post("/products/:productId/views", async (req, res) => {
   await redis.incr(`views:${req.params.productId}`);
   res.json({ status: "recorded" });
 });
@@ -263,7 +181,6 @@ async function flushViewCounts() {
     await redis.del(key);
   }
 }</code></pre>
-        </div>
       </div>
       <table class="kv-table">
         <tbody>
@@ -297,9 +214,9 @@ async function flushViewCounts() {
           <div class="dir">Back</div>
           <div class="label">← Guides overview</div>
         </a>
-        <a href="redis-concepts.html" class="next">
+        <a href="redis.html" class="next">
           <div class="dir">Next</div>
-          <div class="label">Redis Concepts →</div>
+          <div class="label">Redis →</div>
         </a>
       </div>
     </main>

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TTL &amp; Expiration — Cache Docs</title>
-<meta name="description" content="Milk has an expiration date for a reason — cached data needs one too. Learn how TTL works, with time.time() explained from scratch in FastAPI.">
+<meta name="description" content="Milk has an expiration date for a reason — cached data needs one too. Learn how TTL works, with Date.now() explained from scratch in Node.js.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 <link rel="stylesheet" href="../css/style.css">
 </head>
@@ -56,7 +56,7 @@
 
       <div class="page-meta">
         <span class="pill basic">Lesson 4 of 8</span>
-        <span class="read-time">~9 min · hands-on · Python/FastAPI</span>
+        <span class="read-time">~9 min · hands-on · Node.js</span>
       </div>
       <h1>TTL &amp; Expiration</h1>
       <p class="lede">
@@ -78,21 +78,20 @@
         like a sticky note that says "packed at 3:00 PM." Later, before trusting the drawer, we'll check
         how much time has passed.
       </p>
-      <p>Python's <code>time</code> module gives us exactly the tool for this: <code>time.time()</code>.</p>
+      <p>JavaScript's built-in <code>Date</code> object gives us exactly the tool for this: <code>Date.now()</code>.</p>
       <div class="code-block-tight">
         <div class="code-block-header"><span class="code-filename">just exploring, not part of our app yet</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-python">import time
-print(time.time())  # e.g. 1737382021.5 — "right now", as a single number</code></pre>
+        <pre><code class="language-javascript">console.log(Date.now()); // e.g. 1737382021500 — "right now", as a single number</code></pre>
       </div>
       <div class="admonition note">
         <div class="admonition-title">🧒 What is that number?</div>
         <p>
-          <code>time.time()</code> returns the number of seconds since a fixed moment far in the past
-          (January 1st, 1970 — an arbitrary starting line computers agreed on decades ago). You never
-          need to think about that date. All that matters: this number only ever goes <strong>up</strong>,
-          one per second, so a later moment is always a bigger number than an earlier one. That means
-          subtracting an old <code>time.time()</code> from a new one tells you exactly how many seconds
-          passed in between.
+          <code>Date.now()</code> returns the number of <strong>milliseconds</strong> since a fixed
+          moment far in the past (midnight, January 1st, 1970 UTC — an arbitrary starting line computers
+          agreed on decades ago). You never need to think about that date. All that matters: this number
+          only ever goes <strong>up</strong>, so a later moment is always a bigger number than an earlier
+          one. That means subtracting an old <code>Date.now()</code> from a new one tells you exactly how
+          many milliseconds passed in between.
         </p>
       </div>
 
@@ -104,13 +103,13 @@ print(time.time())  # e.g. 1737382021.5 — "right now", as a single number</cod
           <h3>Store the answer <em>and</em> the timestamp together</h3>
           <p>Instead of putting the weather directly in the drawer, we put a small wrapper with two labeled compartments:</p>
           <div class="code-block-tight">
-            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-            <pre><code class="language-python">cache[cache_key] = {
-    "data": weather,
-    "saved_at": time.time(),
-}</code></pre>
+            <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-javascript">cache[cacheKey] = {
+  data: weather,
+  savedAt: Date.now(),
+};</code></pre>
           </div>
-          <p><code>"data"</code> holds the real answer; <code>"saved_at"</code> holds the timestamp from the moment we stored it.</p>
+          <p><code>data</code> holds the real answer; <code>savedAt</code> holds the timestamp from the moment we stored it.</p>
         </div>
       </div>
 
@@ -119,43 +118,45 @@ print(time.time())  # e.g. 1737382021.5 — "right now", as a single number</cod
         <div class="step-body">
           <h3>When reading, check how old it is</h3>
           <div class="code-block">
-            <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-            <pre><code class="language-python">TTL_SECONDS = 10
+            <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+            <pre><code class="language-javascript">const TTL_MS = 10000; // 10 seconds
 
-entry = cache.get(cache_key)
-if entry:
-    age = time.time() - entry["saved_at"]
-    if age < TTL_SECONDS:
-        return entry["data"]</code></pre>
+const entry = cache[cacheKey];
+if (entry) {
+  const age = Date.now() - entry.savedAt;
+  if (age &lt; TTL_MS) {
+    return res.json(entry.data);
+  }
+}</code></pre>
           </div>
         </div>
       </div>
 
       <h2 id="full-code">The full endpoint</h2>
       <div class="code-block-tight">
-        <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-python">import time
-from fastapi import FastAPI
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const cache = {};
+const TTL_MS = 10000;
 
-app = FastAPI()
-cache = {}
-TTL_SECONDS = 10
+app.get("/weather/:city", async (req, res) => {
+  const city = req.params.city;
+  const units = req.query.units || "celsius";
+  const cacheKey = `${city}:${units}`;
+  const entry = cache[cacheKey];
 
-@app.get("/weather/{city}")
-def get_weather(city: str, units: str = "celsius"):
-    cache_key = f"{city}:{units}"
-    entry = cache.get(cache_key)
+  if (entry) {
+    const age = Date.now() - entry.savedAt;
+    if (age &lt; TTL_MS) {
+      return res.json(entry.data);
+    }
+  }
 
-    if entry:
-        age = time.time() - entry["saved_at"]
-        if age < TTL_SECONDS:
-            return entry["data"]
-
-    time.sleep(3)
-    temperature = 24 if units == "celsius" else 75
-    weather = {"city": city, "temperature": temperature, "units": units}
-    cache[cache_key] = {"data": weather, "saved_at": time.time()}
-    return weather</code></pre>
+  await sleep(3000);
+  const temperature = units === "celsius" ? 24 : 75;
+  const weather = { city, temperature, units };
+  cache[cacheKey] = { data: weather, savedAt: Date.now() };
+  res.json(weather);
+});</code></pre>
       </div>
       <p>
         Notice the shape hasn't really changed since <a href="your-first-cache.html">Lesson 2</a>: check
@@ -166,12 +167,12 @@ def get_weather(city: str, units: str = "celsius"):
       <h2 id="try-it">Try it yourself</h2>
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-bash">curl http://localhost:8000/weather/paris   # ~3s (miss — nothing cached yet)
-curl http://localhost:8000/weather/paris   # instant (hit — younger than 10s)
+        <pre><code class="language-bash">curl http://localhost:3000/weather/paris   # ~3s (miss — nothing cached yet)
+curl http://localhost:3000/weather/paris   # instant (hit — younger than 10s)
 
 # wait 11 seconds...
 
-curl http://localhost:8000/weather/paris   # ~3s again (miss — the entry expired)</code></pre>
+curl http://localhost:3000/weather/paris   # ~3s again (miss — the entry expired)</code></pre>
         </div>
       <p>Once more than 10 seconds pass, the drawer is still technically there — but we no longer trust it, so we redo the work and refresh it with a new timestamp.</p>
 
@@ -190,8 +191,8 @@ curl http://localhost:8000/weather/paris   # ~3s again (miss — the entry expir
       <h2 id="recap">Recap</h2>
       <ul>
         <li>A TTL (time-to-live) is how long a cached answer is trusted before it's treated as expired.</li>
-        <li><code>time.time()</code> gives you an always-increasing "right now" number; subtracting two of them gives elapsed seconds.</li>
-        <li>Storing <code>{"data": ..., "saved_at": ...}</code> instead of the raw answer lets us check freshness later.</li>
+        <li><code>Date.now()</code> gives you an always-increasing "right now" number in milliseconds; subtracting two of them gives elapsed time.</li>
+        <li>Storing <code>{ data: ..., savedAt: ... }</code> instead of the raw answer lets us check freshness later.</li>
         <li>Choosing a TTL is a trade-off between freshness and how much slow work you're willing to repeat.</li>
       </ul>
 

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Testing &amp; Observability — Cache Docs</title>
-<meta name="description" content="Test caching logic deterministically with fakeredis, testcontainers, and fake timers, then measure real cache hit rate in production with Prometheus.">
+<meta name="description" content="Test caching logic deterministically with testcontainers and fake timers, then measure real cache hit rate in production with Prometheus, in Node.js.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 <link rel="stylesheet" href="../css/style.css">
 </head>
@@ -40,10 +40,8 @@
       <div class="sidebar-title">Production Guides</div>
       <nav>
         <a href="patterns.html">Caching Patterns</a>
-        <a href="redis-concepts.html">Redis Concepts</a>
-        <a href="redis-caching.html">Redis Caching</a>
-        <a href="redis-nodejs.html">Redis with Node.js</a>
-        <a href="fastapi-cache2.html">Caching Libraries</a>
+        <a href="redis.html">Redis</a>
+        <a href="caching-libraries.html">Caching Libraries</a>
         <a href="http-caching-advanced.html">Advanced HTTP Caching</a>
         <a href="invalidation-at-scale.html">Invalidation at Scale</a>
         <a href="testing-observability.html" class="active">Testing &amp; Observability</a>
@@ -56,7 +54,7 @@
 
       <div class="page-meta">
         <span class="pill basic">Guide</span>
-        <span class="read-time">~11 min · hands-on · FastAPI &amp; Express</span>
+        <span class="read-time">~11 min · hands-on · Node.js</span>
       </div>
       <h1>Testing &amp; Observability</h1>
       <p class="lede">
@@ -65,58 +63,20 @@
         how to know whether a cache is actually earning its complexity once it's live.
       </p>
 
-      <h2 id="testing-cache-logic">Testing cache logic without a real Redis</h2>
+      <h2 id="testing-cache-logic">Testing cache logic without faking Redis's behavior</h2>
       <p>
-        The two ecosystems solve this with genuinely different philosophies. Python's
-        <code>fakeredis</code> mocks the Redis protocol entirely in memory — no Docker, no real server.
-        The Node.js client ecosystem doesn't have as mature an in-memory fake for the modern
-        <code>redis</code> package, so the common approach instead is <code>testcontainers</code>:
-        spinning up a real, ephemeral Redis in Docker just for the test run.
+        Mocking the Redis client is tempting, but Redis's actual behavior — atomic increments, TTL
+        expiration timing, eviction — is exactly what a hand-rolled mock is least likely to get right.
+        The standard, more trustworthy approach is <code>testcontainers</code>: spin up a real,
+        ephemeral Redis in Docker just for the test run, and point your app at that.
       </p>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-bash">pip install fakeredis</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-bash">npm install --save-dev testcontainers supertest</code></pre>
-        </div>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-bash">npm install --save-dev testcontainers supertest</code></pre>
       </div>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">test_products.py</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-python">import fakeredis
-import pytest
-from fastapi.testclient import TestClient
-from main import app, get_redis
-
-@pytest.fixture
-def fake_redis():
-    return fakeredis.aioredis.FakeRedis(decode_responses=True)
-
-@pytest.fixture
-def client(fake_redis):
-    app.dependency_overrides[get_redis] = lambda: fake_redis
-    yield TestClient(app)
-    app.dependency_overrides.clear()
-
-def test_second_request_is_a_cache_hit(client):
-    first = client.get("/products/1")
-    second = client.get("/products/1")
-    assert first.json()["price"] == second.json()["price"]</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">products.test.js</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-javascript">const { GenericContainer } = require("testcontainers");
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">products.test.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const { GenericContainer } = require("testcontainers");
 const { createClient } = require("redis");
 const supertest = require("supertest");
 const { createApp } = require("../server");
@@ -142,56 +102,24 @@ test("second request is a cache hit", async () => {
   const second = await supertest(app).get("/products/1");
   expect(first.body.price).toBe(second.body.price);
 });</code></pre>
-        </div>
       </div>
       <p>
-        Both tests hinge on being able to swap the real client for a test one. FastAPI's
-        <code>app.dependency_overrides</code> does this natively. Express has no built-in
-        equivalent, so <code>server.js</code> needs to export a <code>createApp(redisClient)</code>
-        factory instead of a single bound <code>app</code> — the caller supplies whichever client it
-        wants, production or test.
+        The key design choice that makes this possible: <code>server.js</code> exports a
+        <code>createApp(redisClient)</code> factory instead of one single, already-bound
+        <code>app</code>. That way the caller — your real entrypoint, or this test file — supplies
+        whichever client it wants, production or test, instead of the app reaching for a hardcoded
+        global connection.
       </p>
 
       <h2 id="ttl-tests">Testing TTL expiration without waiting</h2>
       <p>
-        Testing a 30-second TTL shouldn't mean an actual 31-second wait in your test suite. Both
-        ecosystems solve this by controlling what "now" means to the code under test, rather than
-        letting real time pass.
+        Testing a 30-second TTL shouldn't mean an actual 31-second wait in your test suite. Jest ships
+        fake timers built in, which let you control what <code>Date.now()</code>/<code>new Date()</code>
+        return inside the code under test, instead of letting real time pass.
       </p>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-bash">pip install freezegun</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-bash"># jest ships this built in — nothing extra to install</code></pre>
-        </div>
-      </div>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">test_products.py</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-python">from freezegun import freeze_time
-
-def test_cache_expires_after_ttl(client):
-    with freeze_time("2024-01-01 12:00:00"):
-        client.get("/products/1")  # populates the cache
-
-    with freeze_time("2024-01-01 12:00:31"):  # 31s later, past a 30s TTL
-        response = client.get("/products/1")
-        assert response.json()["cached"] is False</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">products.test.js</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-javascript">test("cache expires after TTL", async () => {
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">products.test.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">test("cache expires after TTL", async () => {
   jest.useFakeTimers().setSystemTime(new Date("2024-01-01T12:00:00Z"));
   await supertest(app).get("/products/1"); // populates the cache
 
@@ -201,63 +129,27 @@ def test_cache_expires_after_ttl(client):
 
   jest.useRealTimers();
 });</code></pre>
-        </div>
       </div>
       <p>
-        <code>freeze_time</code> replaces what <code>time.time()</code> returns inside the
-        <code>with</code> block. <code>jest.useFakeTimers()</code> does the equivalent for
-        <code>Date.now()</code>/<code>new Date()</code> — both make a 31-second boundary test run in
-        milliseconds instead of really waiting.
+        <code>jest.useFakeTimers().setSystemTime(...)</code> pins what "now" means for any code that
+        calls <code>Date.now()</code> or constructs a <code>new Date()</code>, so a 31-second boundary
+        test runs in milliseconds instead of really waiting — and <code>jest.useRealTimers()</code> at
+        the end hands control back for any tests that run after it.
       </p>
 
       <h2 id="hit-rate">Measuring hit rate in production</h2>
       <p>
         <strong>Hit rate</strong> — hits divided by (hits + misses) — is the single most useful number
-        for knowing whether a cache is worth its complexity. Both ecosystems have a standard
-        Prometheus client for this.
+        for knowing whether a cache is worth its complexity. <code>prom-client</code> is the standard
+        Prometheus client for Node.js.
       </p>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-bash">pip install prometheus-client</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-bash">npm install prom-client</code></pre>
-        </div>
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">Terminal</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-bash">npm install prom-client</code></pre>
       </div>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-python">from prometheus_client import Counter
-
-cache_hits = Counter("cache_hits_total", "Cache hits", ["endpoint"])
-cache_misses = Counter("cache_misses_total", "Cache misses", ["endpoint"])
-
-async def get_product(product_id: int, r: redis.Redis) -> dict:
-    cache_key = f"product:{product_id}"
-    cached = await r.get(cache_key)
-
-    if cached:
-        cache_hits.labels(endpoint="get_product").inc()
-        return json.loads(cached)
-
-    cache_misses.labels(endpoint="get_product").inc()
-    product = await db.fetch_product(product_id)
-    await r.set(cache_key, json.dumps(product), ex=300)
-    return product</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-javascript">const client = require("prom-client");
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const client = require("prom-client");
 
 const cacheHits = new client.Counter({ name: "cache_hits_total", help: "Cache hits", labelNames: ["endpoint"] });
 const cacheMisses = new client.Counter({ name: "cache_misses_total", help: "Cache misses", labelNames: ["endpoint"] });
@@ -281,16 +173,13 @@ app.get("/metrics", async (req, res) => {
   res.set("Content-Type", client.register.contentType);
   res.end(await client.register.metrics());
 });</code></pre>
-        </div>
       </div>
       <p>
-        <code>prometheus-fastapi-instrumentator</code> wires up <code>/metrics</code> automatically on
-        the Python side; Express needs the small explicit route shown above. Either way, graph
-        <code>cache_hits_total / (cache_hits_total + cache_misses_total)</code> in Grafana. There's no
-        universal "good" hit rate — it depends entirely on your workload's key distribution. What
-        matters is watching for a <em>drop</em>: it usually means a TTL misconfiguration, a cache-key
-        regression (see <a href="../learn/cache-keys.html">Cache Keys</a>), or traffic hitting a cold
-        cache after a deploy.
+        Graph <code>cache_hits_total / (cache_hits_total + cache_misses_total)</code> in Grafana.
+        There's no universal "good" hit rate — it depends entirely on your workload's key
+        distribution. What matters is watching for a <em>drop</em>: it usually means a TTL
+        misconfiguration, a cache-key regression (see <a href="../learn/cache-keys.html">Cache
+        Keys</a>), or traffic hitting a cold cache after a deploy.
       </p>
 
       <h2 id="logging">Logging, for targeted debugging</h2>
@@ -304,10 +193,10 @@ app.get("/metrics", async (req, res) => {
 
       <h2 id="recap">Recap</h2>
       <ul>
-        <li><code>fakeredis</code> mocks Redis in-memory for Python tests; the Node ecosystem more commonly spins up a real ephemeral Redis with <code>testcontainers</code> instead.</li>
-        <li>An Express app needs to export an app-creating <em>factory</em> to make its Redis client swappable in tests, since there's no built-in dependency-override system like FastAPI's.</li>
-        <li><code>freezegun</code> and <code>jest</code>'s fake timers both make TTL-boundary tests instant and deterministic.</li>
-        <li>Hit rate is the key production metric in both ecosystems; watch for drops, not absolute thresholds.</li>
+        <li><code>testcontainers</code> spins up a real, ephemeral Redis in Docker for tests — more trustworthy than mocking Redis's own behavior by hand.</li>
+        <li>Exporting an app-creating <em>factory</em> (<code>createApp(redisClient)</code>) instead of one bound <code>app</code> is what makes the Redis client swappable between production and tests.</li>
+        <li>Jest's fake timers make TTL-boundary tests instant and deterministic — no real waiting.</li>
+        <li>Hit rate is the key production metric to watch; care about drops, not absolute thresholds.</li>
       </ul>
 
       <div class="next-page">

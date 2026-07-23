@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Invalidation at Scale — Cache Docs</title>
-<meta name="description" content="Two-tier cache invalidation with Redis Pub/Sub, plus taming cache stampedes with distributed locks and probabilistic early expiration (XFetch), in FastAPI and Express.">
+<meta name="description" content="Two-tier cache invalidation with Redis Pub/Sub, plus taming cache stampedes with distributed locks and probabilistic early expiration (XFetch), in Node.js.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 <link rel="stylesheet" href="../css/style.css">
 </head>
@@ -40,10 +40,8 @@
       <div class="sidebar-title">Production Guides</div>
       <nav>
         <a href="patterns.html">Caching Patterns</a>
-        <a href="redis-concepts.html">Redis Concepts</a>
-        <a href="redis-caching.html">Redis Caching</a>
-        <a href="redis-nodejs.html">Redis with Node.js</a>
-        <a href="fastapi-cache2.html">Caching Libraries</a>
+        <a href="redis.html">Redis</a>
+        <a href="caching-libraries.html">Caching Libraries</a>
         <a href="http-caching-advanced.html">Advanced HTTP Caching</a>
         <a href="invalidation-at-scale.html" class="active">Invalidation at Scale</a>
         <a href="testing-observability.html">Testing &amp; Observability</a>
@@ -56,7 +54,7 @@
 
       <div class="page-meta">
         <span class="pill basic">Guide</span>
-        <span class="read-time">~14 min · hands-on · FastAPI &amp; Express</span>
+        <span class="read-time">~14 min · hands-on · Node.js</span>
       </div>
       <h1>Invalidation at Scale</h1>
       <p class="lede">
@@ -73,32 +71,9 @@
         expire. You need a way to tell every instance, right now, "forget this key."
       </p>
       <p>Redis Pub/Sub solves exactly this: broadcast an invalidation message, and every instance listening clears its own local entry.</p>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-python">import redis.asyncio as redis
-
-local_cache: dict[str, dict] = {}
-
-async def invalidate_product(product_id: int, r: redis.Redis) -> None:
-    cache_key = f"product:{product_id}"
-    await r.delete(cache_key)
-    await r.publish("cache-invalidation", cache_key)
-
-async def listen_for_invalidations(r: redis.Redis) -> None:
-    pubsub = r.pubsub()
-    await pubsub.subscribe("cache-invalidation")
-    async for message in pubsub.listen():
-        if message["type"] == "message":
-            local_cache.pop(message["data"], None)</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-javascript">const localCache = new Map();
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">const localCache = new Map();
 
 async function invalidateProduct(productId, r) {
   const cacheKey = `product:${productId}`;
@@ -113,25 +88,19 @@ async function listenForInvalidations(r) {
     localCache.delete(cacheKey);
   });
 }</code></pre>
-        </div>
       </div>
       <p>
-        The two client APIs shape this differently. Python's <code>pubsub.listen()</code> is an async
-        generator — you <code>async for</code> over incoming messages and check each one's type.
-        Node's client instead takes a <strong>callback</strong> directly in <code>subscribe()</code>,
-        invoked once per message, with no message-type check needed.
+        <code>subscribe()</code> takes a callback directly, invoked once per message — no manual
+        message-loop to write. Note also <code>r.duplicate()</code>: a Redis connection that's
+        subscribed to a channel can't issue ordinary commands on that same connection, so it needs its
+        own dedicated connection, separate from the one your app uses for everything else. See
+        <a href="redis.html">Redis</a> if <code>duplicate()</code> is new to you.
       </p>
       <p>
-        Also note <code>r.duplicate()</code>: a Redis connection that's subscribed to a channel can't
-        issue ordinary commands on that same connection, so Node's client requires you to explicitly
-        open a second connection dedicated to subscribing. Python's <code>r.pubsub()</code> has the
-        same underlying requirement — it just opens that second connection for you internally.
-      </p>
-      <p>
-        <code>listen_for_invalidations</code> / <code>listenForInvalidations</code> runs once per
-        instance, started from <code>lifespan</code> (FastAPI) or right after connecting (Express).
-        When any instance calls the invalidate function, every instance's local cache drops that key
-        within milliseconds — regardless of which instance served the original write.
+        <code>listenForInvalidations</code> runs once per instance, started right after your main
+        Redis client connects. When any instance calls the invalidate function, every instance's local
+        cache drops that key within milliseconds — regardless of which instance served the original
+        write.
       </p>
 
       <h2 id="stampede">The cache stampede problem</h2>
@@ -144,38 +113,9 @@ async function listenForInvalidations(r) {
 
       <h2 id="locking">Fix 1: a distributed lock</h2>
       <p>Let only the first request that sees a miss recompute; everyone else waits briefly and retries.</p>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-python">import asyncio
-
-async def get_product_locked(product_id: int, r: redis.Redis) -> dict:
-    cache_key = f"product:{product_id}"
-    lock_key = f"lock:{cache_key}"
-
-    cached = await r.get(cache_key)
-    if cached:
-        return json.loads(cached)
-
-    got_lock = await r.set(lock_key, "1", nx=True, ex=5)
-    if got_lock:
-        try:
-            product = await db.fetch_product(product_id)
-            await r.set(cache_key, json.dumps(product), ex=300)
-            return product
-        finally:
-            await r.delete(lock_key)
-
-    await asyncio.sleep(0.05)
-    return await get_product_locked(product_id, r)</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-javascript">async function getProductLocked(productId, r) {
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">async function getProductLocked(productId, r) {
   const cacheKey = `product:${productId}`;
   const lockKey = `lock:${cacheKey}`;
 
@@ -196,9 +136,8 @@ async def get_product_locked(product_id: int, r: redis.Redis) -> dict:
   await new Promise((resolve) => setTimeout(resolve, 50));
   return getProductLocked(productId, r);
 }</code></pre>
-        </div>
       </div>
-      <p><code>SET ... NX EX</code> is atomic in Redis — exactly one caller can hold the lock at a time, and it self-expires even if the holder crashes before releasing it. Both clients return a truthy value from <code>set(..., NX: true)</code> only when the key didn't already exist and the write succeeded.</p>
+      <p><code>SET ... NX EX</code> is atomic in Redis — exactly one caller can hold the lock at a time, and it self-expires even if the holder crashes before releasing it. <code>set(..., { NX: true })</code> returns a truthy value only when the key didn't already exist and the write succeeded.</p>
 
       <h2 id="xfetch">Fix 2: probabilistic early expiration (XFetch)</h2>
       <p>
@@ -210,42 +149,9 @@ async def get_product_locked(product_id: int, r: redis.Redis) -> dict:
         the real expiry. A few unlucky requests refresh the value ahead of time, so by the time it
         would have actually expired, it never does — no simultaneous miss, no stampede.
       </p>
-      <div class="framework-tabs">
-        <div class="framework-tab-buttons">
-          <button class="framework-tab-btn active" data-lang="fastapi"><span class="tab-dot"></span> FastAPI (Python)</button>
-          <button class="framework-tab-btn" data-lang="express"><span class="tab-dot"></span> Express (Node.js)</button>
-        </div>
-        <div class="framework-tab-panel active" data-lang="fastapi">
-          <div class="code-block-header"><span class="code-filename">main.py</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-python">import math
-import random
-import time
-
-async def get_product_xfetch(product_id: int, r: redis.Redis, beta: float = 1.0) -> dict:
-    cache_key = f"product:{product_id}"
-    entry = await r.hgetall(cache_key)  # {} if the key doesn't exist
-
-    if entry:
-        expiry = float(entry["expiry"])
-        delta = float(entry["delta"])  # how long the last computation took
-        now = time.time()
-        if now - delta * beta * math.log(random.random()) < expiry:
-            return json.loads(entry["data"])
-
-    start = time.time()
-    product = await db.fetch_product(product_id)
-    delta = time.time() - start
-
-    await r.hset(cache_key, mapping={
-        "data": json.dumps(product),
-        "expiry": start + 300,
-        "delta": delta,
-    })
-    return product</code></pre>
-        </div>
-        <div class="framework-tab-panel" data-lang="express">
-          <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
-          <pre><code class="language-javascript">async function getProductXfetch(productId, r, beta = 1.0) {
+      <div class="code-block">
+        <div class="code-block-header"><span class="code-filename">server.js</span><button class="copy-btn">Copy</button></div>
+        <pre><code class="language-javascript">async function getProductXfetch(productId, r, beta = 1.0) {
   const cacheKey = `product:${productId}`;
   const entry = await r.hGetAll(cacheKey); // {} if the key doesn't exist
 
@@ -253,7 +159,7 @@ async def get_product_xfetch(product_id: int, r: redis.Redis, beta: float = 1.0)
     const expiry = Number(entry.expiry);
     const delta = Number(entry.delta); // how long the last computation took
     const now = Date.now() / 1000;
-    if (now - delta * beta * Math.log(Math.random()) < expiry) {
+    if (now - delta * beta * Math.log(Math.random()) &lt; expiry) {
       return JSON.parse(entry.data);
     }
   }
@@ -269,17 +175,15 @@ async def get_product_xfetch(product_id: int, r: redis.Redis, beta: float = 1.0)
   });
   return product;
 }</code></pre>
-        </div>
       </div>
       <div class="admonition tip">
-        <div class="admonition-title">💡 A subtle language difference in the check itself</div>
+        <div class="admonition-title">💡 Why check <code>entry.expiry</code> instead of just <code>entry</code>?</div>
         <p>
-          Python's <code>if entry:</code> works because an empty dict (<code>{}</code>, what
-          <code>hgetall</code> returns for a missing key) is falsy. In JavaScript, <strong>every
-          object is truthy</strong> — even <code>{}</code> — so <code>if (entry)</code> would
-          incorrectly pass even when the key doesn't exist. The Node version checks
-          <code>entry.expiry</code> specifically instead, which is <code>undefined</code> (falsy) when
-          the hash doesn't exist.
+          In JavaScript, <strong>every object is truthy</strong> — even an empty one, <code>{}</code>,
+          which is exactly what <code>hGetAll</code> returns for a key that doesn't exist. So
+          <code>if (entry)</code> would incorrectly pass even on a total miss. Checking a specific
+          field that only exists on a real entry, like <code>entry.expiry</code>, correctly evaluates
+          to <code>undefined</code> (falsy) when there's nothing cached yet.
         </p>
       </div>
       <p>
@@ -300,10 +204,10 @@ async def get_product_xfetch(product_id: int, r: redis.Redis, beta: float = 1.0)
 
       <h2 id="recap">Recap</h2>
       <ul>
-        <li>Redis Pub/Sub propagates invalidation to local, per-instance caches that a plain <code>DEL</code> on Redis can't reach — Python iterates messages with an async generator, Node registers a callback.</li>
+        <li>Redis Pub/Sub propagates invalidation to local, per-instance caches that a plain <code>DEL</code> on Redis can't reach — subscribe with a callback, on a dedicated <code>duplicate()</code>d connection.</li>
         <li>A cache stampede is many requests recomputing the same expired key at the same instant — it gets worse, not better, just because you're using a shared cache.</li>
         <li>A distributed lock (<code>SET NX EX</code>) guarantees only one recompute, at the cost of making other callers wait briefly.</li>
-        <li>Probabilistic early expiration (XFetch) avoids blocking entirely by spreading recomputation out before the real expiry — and its "is there a cached entry?" check needs to be written differently in Python (falsy empty dict) than in JavaScript (objects are always truthy).</li>
+        <li>Probabilistic early expiration (XFetch) avoids blocking entirely by spreading recomputation out before the real expiry.</li>
       </ul>
 
       <div class="next-page">

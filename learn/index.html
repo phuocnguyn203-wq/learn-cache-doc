@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Learn — Cache Docs</title>
-<meta name="description" content="Start here: eight short, focused lessons that build up everything you need to know about caching, one concept at a time, in plain FastAPI (Python).">
+<meta name="description" content="Start here: eight short, focused lessons that build up everything you need to know about caching, one concept at a time, in plain Node.js (Express).">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 <link rel="stylesheet" href="../css/style.css">
 </head>
@@ -56,7 +56,7 @@
       <h1>Learn Caching</h1>
       <p class="lede">
         Assume nothing going in. This guide builds caching up from zero, one small idea at a time —
-        each lesson explains its code line by line, in plain FastAPI (Python).
+        each lesson explains its code line by line, in plain Node.js (Express).
       </p>
 
       <div class="admonition tip">
@@ -76,7 +76,7 @@
         <a class="card" href="your-first-cache.html">
           <span class="pill basic">2</span>
           <h3>Your First Cache</h3>
-          <p>Build a deliberately slow endpoint, then speed it up with a plain Python dictionary — every line explained.</p>
+          <p>Build a deliberately slow endpoint, then speed it up with a plain JavaScript object — every line explained.</p>
           <p class="read-time" style="margin-top:10px;">~10 min · hands-on</p>
         </a>
         <a class="card" href="cache-keys.html">
@@ -88,13 +88,13 @@
         <a class="card" href="ttl.html">
           <span class="pill basic">4</span>
           <h3>TTL &amp; Expiration</h3>
-          <p>Give cached answers a shelf life, using <code>time.time()</code> explained completely from scratch.</p>
+          <p>Give cached answers a shelf life, using <code>Date.now()</code> explained completely from scratch.</p>
           <p class="read-time" style="margin-top:10px;">~9 min · hands-on</p>
         </a>
         <a class="card" href="eviction.html">
           <span class="pill basic">5</span>
           <h3>Eviction</h3>
-          <p>Stop the cache from growing forever by hand-building a small LRU cache with <code>OrderedDict</code>.</p>
+          <p>Stop the cache from growing forever by hand-building a small LRU cache with a JavaScript <code>Map</code>.</p>
           <p class="read-time" style="margin-top:10px;">~10 min · hands-on</p>
         </a>
         <a class="card" href="invalidation.html">
@@ -119,17 +119,20 @@
 
       <h2 id="prerequisites">Prerequisites</h2>
       <ul>
-        <li>Basic Python syntax — variables, functions, <code>if</code> statements. Nothing about FastAPI or caching is assumed.</li>
-        <li>Python 3.9+ and <code>pip install fastapi uvicorn</code> if you want to run the examples yourself (recommended).</li>
+        <li>Basic JavaScript syntax — variables, functions, <code>if</code> statements. Nothing about Express or caching is assumed.</li>
+        <li>Node.js installed and <code>npm install express</code> if you want to run the examples yourself (recommended).</li>
         <li>No prior caching knowledge required. That's the whole point of this guide.</li>
       </ul>
 
-      <h2 id="why-fastapi">Why FastAPI?</h2>
+      <h2 id="why-nodejs">Why Node.js?</h2>
       <p>
         Caching itself is a language-agnostic idea — it's about <em>where</em> you store results and
         <em>when</em> you throw them away, not about any particular framework's syntax. We stick to one
         framework and one language throughout so every lesson can focus entirely on the caching concept,
-        instead of splitting your attention across two syntaxes at once.
+        instead of splitting your attention across two syntaxes at once. Node.js also happens to be where
+        this matters most in practice: every request runs on a single thread, so a genuinely slow,
+        blocking operation would freeze your <em>whole</em> server, not just one request — caching pays
+        off fast.
       </p>
 
       <div class="next-page">
