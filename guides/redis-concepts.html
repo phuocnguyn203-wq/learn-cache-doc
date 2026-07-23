@@ -210,10 +210,10 @@
         <div class="code-block-header"><span class="code-filename">redis-cli</span><button class="copy-btn">Copy</button></div>
         <pre><code class="language-redis">SET user:1000:name "Ada"
 GET user:1000:name                  # → "Ada"
-APPEND user:1000:name " Lovelace"   # value becomes "Ada Lovelace"; returns 13 (new length)
+APPEND user:1000:name " Lovelace"   # → "Ada Lovelace" (13 chars)
 STRLEN user:1000:name               # → 13
-INCR page:views                     # page:views didn't exist -> created as "1", returns 1
-INCRBY page:views 10                # page:views is now "11", returns 11</code></pre>
+INCR page:views                     # → 1 (key created fresh)
+INCRBY page:views 10                # → 11</code></pre>
       </div>
       <p>
         <code>INCR</code>/<code>INCRBY</code> only work because Redis treats a string holding a
@@ -250,10 +250,10 @@ INCRBY page:views 10                # page:views is now "11", returns 11</code><
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">redis-cli</span><button class="copy-btn">Copy</button></div>
         <pre><code class="language-redis">HSET user:1000 name "Ada" plan "pro" logins 42   # → 3 (new fields created)
-HGET user:1000 plan                              # → "pro"
-HGETALL user:1000                                # → name "Ada", plan "pro", logins 42
-HINCRBY user:1000 logins 1                       # logins becomes 43, returns 43
-HDEL user:1000 plan                              # → 1 (field removed); name and logins remain</code></pre>
+HGET user:1000 plan                # → "pro"
+HGETALL user:1000                  # → name Ada, plan pro, logins 42
+HINCRBY user:1000 logins 1         # → 43
+HDEL user:1000 plan                # → 1 (plan field removed)</code></pre>
       </div>
       <div class="admonition tip">
         <div class="admonition-title">💡 Hash vs. several strings vs. one JSON string</div>
@@ -281,20 +281,21 @@ HDEL user:1000 plan                              # → 1 (field removed); name a
       <div class="shape-diagram">
         <div class="shape-diagram-label">Shape in memory</div>
         <pre><span class="k">"recent:user:1000"</span>  <span class="m">→</span>  [ "viewed:57" | "viewed:42" | "viewed:31" ]
-                          <span class="m">↑ head (LPUSH/LPOP here)      tail (RPUSH/RPOP here) ↑</span>
+                       <span class="m">↑head                      tail↑</span>
+                    <span class="m">LPUSH/LPOP                RPUSH/RPOP</span>
 
-<span class="m">an ordered chain — cheap to change at either end, expensive to search in the middle</span></pre>
+<span class="m">cheap to change at either end, expensive to search in the middle</span></pre>
       </div>
       <p>
         Walking through a typical "keep the 100 most recent events" pattern:
       </p>
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">redis-cli</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-redis">LPUSH recent:user:1000 "viewed:product:42"   # list is now [ "viewed:product:42" ]
-LPUSH recent:user:1000 "viewed:product:57"   # list is now [ "viewed:product:57", "viewed:product:42" ]
+        <pre><code class="language-redis">LPUSH recent:user:1000 "viewed:product:42"   # → 1 (list length)
+LPUSH recent:user:1000 "viewed:product:57"   # → 2 (newest at head)
 LRANGE recent:user:1000 0 9         # → up to 10 items, newest (head) first
-LTRIM recent:user:1000 0 99         # keep only the newest 100, delete everything past index 99
-RPOP job:queue                      # remove and return the item from the tail — a FIFO queue</code></pre>
+LTRIM recent:user:1000 0 99         # keeps newest 100, drops the rest
+RPOP job:queue                      # → tail item removed (FIFO queue)</code></pre>
       </div>
       <p>
         <code>LPUSH</code> (add at head) + <code>RPOP</code> (remove from tail) together give you a
@@ -323,10 +324,10 @@ RPOP job:queue                      # remove and return the item from the tail �
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">redis-cli</span><button class="copy-btn">Copy</button></div>
         <pre><code class="language-redis">SADD product:42:tags "sale" "electronics" "new"   # → 3 (members added)
-SISMEMBER product:42:tags "sale"    # → 1 (present) — O(1), regardless of set size
+SISMEMBER product:42:tags "sale"    # → 1 (present), O(1) either way
 SCARD product:42:tags               # → 3 (count of members)
 SINTER product:42:tags product:57:tags   # → members present in BOTH sets
-SUNION viewers:today viewers:yesterday   # → every member from either set, duplicates collapsed</code></pre>
+SUNION viewers:today viewers:yesterday   # → union, no duplicates</code></pre>
       </div>
 
       <h3 id="sorted-sets">Sorted Sets (ZSets)</h3>
@@ -348,7 +349,7 @@ SUNION viewers:today viewers:yesterday   # → every member from either set, dup
                     1500    "alice"
                     1800    "bob"
 
-<span class="m">member = who; score = the number it's sorted by (points, a timestamp, anything orderable)</span></pre>
+<span class="m">member = who; score = what it's sorted by (points, a timestamp, etc.)</span></pre>
       </div>
       <p>
         Watching how each command reads or reshuffles that ordering:
@@ -356,11 +357,11 @@ SUNION viewers:today viewers:yesterday   # → every member from either set, dup
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">redis-cli</span><button class="copy-btn">Copy</button></div>
         <pre><code class="language-redis">ZADD leaderboard 1500 "alice" 1800 "bob" 1200 "carol"   # → 3 (members added)
-ZREVRANGE leaderboard 0 2 WITHSCORES   # → bob 1800, alice 1500, carol 1200 (highest first)
+ZREVRANGE leaderboard 0 2 WITHSCORES   # → bob, alice, carol (high to low)
 ZSCORE leaderboard "alice"              # → "1500"
-ZINCRBY leaderboard 50 "alice"          # alice's score becomes 1550, returns "1550"
-ZRANK leaderboard "alice"               # → 1 (0-indexed position, ascending: carol=0, alice=1, bob=2)
-ZRANGEBYSCORE leaderboard 1000 1600     # → carol and alice — everyone scoring 1000 to 1600</code></pre>
+ZINCRBY leaderboard 50 "alice"          # → "1550" (new score)
+ZRANK leaderboard "alice"               # → 1 (ascending, 0-indexed)
+ZRANGEBYSCORE leaderboard 1000 1600     # → carol, alice (1000-1600)</code></pre>
       </div>
       <p>
         Using a Unix timestamp as the score turns a sorted set into a time-ordered index — the basis
