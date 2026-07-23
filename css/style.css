@@ -854,3 +854,35 @@ table.kv-table td:first-child {
   vertical-align: top;
   padding-top: 12px;
 }
+
+/* ---------------------------------- Data structure "shape" diagrams ---------------------------------- */
+.shape-diagram {
+  margin: 14px 0 22px;
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  overflow: hidden;
+}
+.shape-diagram-label {
+  padding: 7px 14px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--code-border);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.shape-diagram pre {
+  margin: 0;
+  padding: 16px 18px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.75;
+  color: #dadfe8;
+  white-space: pre;
+}
+.shape-diagram .k { color: var(--accent-strong); }
+.shape-diagram .t { color: var(--express-accent); }
+.shape-diagram .m { color: var(--text-faint); }

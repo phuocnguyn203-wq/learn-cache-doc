@@ -113,10 +113,48 @@
 
       <h2 id="data-structures">The data structures</h2>
       <p>
-        Every value in Redis is stored under a key (a string, by convention often built like a
-        namespaced path: <code>user:1000:profile</code>). What differs is the shape of the value
-        itself. These five cover the overwhelming majority of real usage:
+        Forget Redis for a second and picture a plain JavaScript object, or a Python dict — one big
+        map of <code>key: value</code> pairs, sitting in memory. Redis <em>is</em> that map, except it
+        lives in a separate process that your application talks to over the network instead of
+        holding directly in its own memory. That's the entire mental model. The one twist that makes
+        Redis more than "a dict on another server" is that <strong>the value isn't limited to a plain
+        string</strong> — each key's value has a declared <em>type</em>, and that type decides both
+        what shape the value takes and which commands are legal against it. You can't
+        <code>LPUSH</code> onto a key that holds a String, any more than you could call
+        <code>.push()</code> on a plain number in JavaScript.
       </p>
+      <p>
+        Here's what that looks like with five real keys sitting in one Redis server at once — this is
+        the picture to hold in your head for everything below:
+      </p>
+      <div class="shape-diagram">
+        <div class="shape-diagram-label">One Redis server, five keys, five shapes</div>
+        <pre><span class="k">"user:1000:name"</span>    <span class="m">→</span>  <span class="t">STRING</span>  "Ada Lovelace"
+<span class="k">"user:1000"</span>         <span class="m">→</span>  <span class="t">HASH</span>    {name: "Ada", plan: "pro", logins: 42}
+<span class="k">"recent:user:1000"</span>  <span class="m">→</span>  <span class="t">LIST</span>    ["viewed:57", "viewed:42", "viewed:31"]
+<span class="k">"product:42:tags"</span>   <span class="m">→</span>  <span class="t">SET</span>     {"sale", "electronics", "new"}
+<span class="k">"leaderboard"</span>       <span class="m">→</span>  <span class="t">ZSET</span>    {"carol": 1200, "alice": 1500, "bob": 1800}</pre>
+      </div>
+      <p>
+        Every one of those keys is fetched, inspected, and modified with a <em>different</em> set of
+        commands, because a list of recent views, a bag of unique tags, and a leaderboard all need
+        different operations to be fast. That's really all "Redis has data structures" means: instead
+        of forcing every problem into "fetch the whole blob, change it in your app, write the whole
+        blob back," Redis gives the shape that matches your access pattern, with server-side commands
+        built for that shape. The five below cover the overwhelming majority of real usage.
+      </p>
+      <div class="admonition note">
+        <div class="admonition-title">🧭 A note on the "O(1)" / "O(n)" you'll see below</div>
+        <p>
+          Each type description below mentions how its operations scale, using Big-O notation:
+          <code>O(1)</code> means "takes roughly the same amount of time no matter how much data is in
+          there" (constant time — the best case). <code>O(n)</code> means "takes longer the more items
+          there are" (linear — fetching 1,000 items takes roughly 10x as long as fetching 100).
+          <code>O(log n)</code> sits in between: it grows, but much more slowly than the data does. It
+          matters here because it tells you which operations stay cheap as your dataset grows, and
+          which ones quietly become the bottleneck.
+        </p>
+      </div>
       <div class="card-grid">
         <div class="card" style="cursor:default;">
           <span class="card-icon">🔤</span>
@@ -154,38 +192,68 @@
       <p>
         The simplest type — a single value under a key, like a labeled drawer holding one piece of
         paper. <code>SET</code> writes the whole value; there's no partial update — writing a new
-        value always replaces the old one.
+        value always replaces the old one. If you've used Redis only as "the thing my cache library
+        talks to," this is almost certainly the type it's been using under the hood.
+      </p>
+      <div class="shape-diagram">
+        <div class="shape-diagram-label">Shape in memory</div>
+        <pre>key                    value
+────────────────────────────────────
+<span class="k">"user:1000:name"</span>  <span class="m">→</span>  "Ada Lovelace"
+
+<span class="m">one key, one opaque value — Redis doesn't know or care what's inside it</span></pre>
+      </div>
+      <p>
+        Walking through what each command actually does to that drawer, step by step:
       </p>
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">redis-cli</span><button class="copy-btn">Copy</button></div>
         <pre><code class="language-redis">SET user:1000:name "Ada"
-GET user:1000:name
-APPEND user:1000:name " Lovelace"   # "Ada" -> "Ada Lovelace"
-STRLEN user:1000:name
-INCR page:views                     # numeric strings support atomic math
-INCRBY page:views 10</code></pre>
+GET user:1000:name                  # → "Ada"
+APPEND user:1000:name " Lovelace"   # value becomes "Ada Lovelace"; returns 13 (new length)
+STRLEN user:1000:name               # → 13
+INCR page:views                     # page:views didn't exist -> created as "1", returns 1
+INCRBY page:views 10                # page:views is now "11", returns 11</code></pre>
       </div>
       <p>
         <code>INCR</code>/<code>INCRBY</code> only work because Redis treats a string holding a
-        valid integer as a number for these commands — this is the whole basis for Redis-backed
-        counters and rate limiters, covered in <a href="redis-nodejs.html#patterns">Redis with
-        Node.js</a>.
+        valid integer as a number for these commands — under the hood it parses the string, does the
+        math, and writes the result back as a string again, all as one atomic step. That single fact
+        is the whole basis for Redis-backed counters and rate limiters, covered in
+        <a href="redis-nodejs.html#patterns">Redis with Node.js</a>.
       </p>
 
       <h3 id="hashes">Hashes</h3>
       <p>
-        A hash stores several named fields under one key — think of it as a mini object living
-        directly inside one drawer, instead of one piece of paper per drawer. Useful whenever you'd
-        otherwise reach for several separate string keys that always change together (a user's
+        A hash stores several named fields under <em>one</em> key — think of it as a mini object (in
+        JavaScript terms, one key pointing at <code>{ name: "Ada", plan: "pro", logins: 42 }</code>)
+        living directly inside one drawer, instead of one piece of paper per drawer. Useful whenever
+        you'd otherwise reach for several separate string keys that always change together (a user's
         profile fields, cached metadata alongside the cached value itself).
+      </p>
+      <div class="shape-diagram">
+        <div class="shape-diagram-label">Shape in memory</div>
+        <pre><span class="k">"user:1000"</span>  <span class="m">→</span>  field      value
+              ─────────────────
+              name       "Ada"
+              plan       "pro"
+              logins     42
+
+<span class="m">one key, many named fields — like a small table nested inside a single entry</span></pre>
+      </div>
+      <p>
+        <code>HSET</code> can create or update several fields in one call; <code>HGET</code> reads a
+        single field back without touching the rest of the hash — that's the whole advantage over
+        stuffing the same data into one JSON string, where reading one field means deserializing
+        everything:
       </p>
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">redis-cli</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-redis">HSET user:1000 name "Ada" plan "pro" logins 42
-HGET user:1000 plan
-HGETALL user:1000
-HINCRBY user:1000 logins 1
-HDEL user:1000 plan</code></pre>
+        <pre><code class="language-redis">HSET user:1000 name "Ada" plan "pro" logins 42   # → 3 (new fields created)
+HGET user:1000 plan                              # → "pro"
+HGETALL user:1000                                # → name "Ada", plan "pro", logins 42
+HINCRBY user:1000 logins 1                       # logins becomes 43, returns 43
+HDEL user:1000 plan                              # → 1 (field removed); name and logins remain</code></pre>
       </div>
       <div class="admonition tip">
         <div class="admonition-title">💡 Hash vs. several strings vs. one JSON string</div>
@@ -202,57 +270,97 @@ HDEL user:1000 plan</code></pre>
 
       <h3 id="lists">Lists</h3>
       <p>
-        A doubly linked list under the hood — pushing or popping either end is O(1) regardless of the
-        list's length, but random access into the middle (<code>LINDEX</code>) is O(n). That shape
-        makes lists the natural fit for queues and bounded activity feeds, not for anything you'll
-        binary-search.
+        An ordered sequence of strings under one key — a doubly linked list under the hood, which is
+        the detail that explains its whole performance profile. Pushing or popping at either
+        <em>end</em> is <code>O(1)</code> (Redis just relinks the head or tail pointer — no matter if
+        the list holds 10 items or 10 million, that's the same tiny amount of work). But reaching into
+        the <em>middle</em> (<code>LINDEX</code>) is <code>O(n)</code>, because there's no shortcut —
+        Redis has to walk the chain from one end. That shape makes lists the natural fit for queues and
+        bounded activity feeds, not for anything you'll binary-search or randomly index into.
+      </p>
+      <div class="shape-diagram">
+        <div class="shape-diagram-label">Shape in memory</div>
+        <pre><span class="k">"recent:user:1000"</span>  <span class="m">→</span>  [ "viewed:57" | "viewed:42" | "viewed:31" ]
+                          <span class="m">↑ head (LPUSH/LPOP here)      tail (RPUSH/RPOP here) ↑</span>
+
+<span class="m">an ordered chain — cheap to change at either end, expensive to search in the middle</span></pre>
+      </div>
+      <p>
+        Walking through a typical "keep the 100 most recent events" pattern:
       </p>
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">redis-cli</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-redis">LPUSH recent:user:1000 "viewed:product:42"
-LPUSH recent:user:1000 "viewed:product:57"
-LRANGE recent:user:1000 0 9         # most recent 10 items
-LTRIM recent:user:1000 0 99         # keep only the newest 100, drop the rest
-RPOP job:queue                      # pop from the opposite end — a FIFO queue</code></pre>
+        <pre><code class="language-redis">LPUSH recent:user:1000 "viewed:product:42"   # list is now [ "viewed:product:42" ]
+LPUSH recent:user:1000 "viewed:product:57"   # list is now [ "viewed:product:57", "viewed:product:42" ]
+LRANGE recent:user:1000 0 9         # → up to 10 items, newest (head) first
+LTRIM recent:user:1000 0 99         # keep only the newest 100, delete everything past index 99
+RPOP job:queue                      # remove and return the item from the tail — a FIFO queue</code></pre>
       </div>
       <p>
-        <code>LPUSH</code> + <code>RPOP</code> together give you a first-in-first-out queue;
-        <code>LPUSH</code> + <code>LPOP</code> gives a stack. <code>BLPOP</code> is the blocking
-        variant — a worker calls it and the connection waits (up to a timeout) until an item is
-        available, instead of polling.
+        <code>LPUSH</code> (add at head) + <code>RPOP</code> (remove from tail) together give you a
+        first-in-first-out queue — items leave in the same order they arrived. <code>LPUSH</code> +
+        <code>LPOP</code> (both at the head) gives a stack instead — last in, first out.
+        <code>BLPOP</code> is the blocking variant of <code>LPOP</code>: a worker calls it and the
+        connection just waits (up to a timeout) until an item shows up, instead of polling
+        <code>LPOP</code> in a loop.
       </p>
 
       <h3 id="sets">Sets</h3>
       <p>
-        Unordered, unique members. The killer feature isn't storage — it's the set-algebra commands
-        that run entirely server-side, so you never pull two large sets into your application just to
-        intersect them.
+        Unordered, unique members — add the same value twice and the set simply stays the same size.
+        There's no index, no first or last element, and no guaranteed order at all: a Set answers "is
+        this in there?" and "what's in there in common with that other one?", not "what's item #3?".
+        The killer feature isn't storage — it's the set-algebra commands (intersect, union, diff) that
+        run entirely server-side, so you never have to pull two potentially huge sets into your
+        application just to compare them yourself.
       </p>
+      <div class="shape-diagram">
+        <div class="shape-diagram-label">Shape in memory</div>
+        <pre><span class="k">"product:42:tags"</span>  <span class="m">→</span>  { "sale", "electronics", "new" }
+
+<span class="m">a bag with no order and no duplicates — adding "sale" again changes nothing</span></pre>
+      </div>
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">redis-cli</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-redis">SADD product:42:tags "sale" "electronics" "new"
-SISMEMBER product:42:tags "sale"    # 1 or 0 — O(1) membership check
-SCARD product:42:tags               # count of members
-SINTER product:42:tags product:57:tags   # tags both products share
-SUNION viewers:today viewers:yesterday   # unique visitors across both sets</code></pre>
+        <pre><code class="language-redis">SADD product:42:tags "sale" "electronics" "new"   # → 3 (members added)
+SISMEMBER product:42:tags "sale"    # → 1 (present) — O(1), regardless of set size
+SCARD product:42:tags               # → 3 (count of members)
+SINTER product:42:tags product:57:tags   # → members present in BOTH sets
+SUNION viewers:today viewers:yesterday   # → every member from either set, duplicates collapsed</code></pre>
       </div>
 
       <h3 id="sorted-sets">Sorted Sets (ZSets)</h3>
       <p>
-        A sorted set is a set where every member also has a floating-point <strong>score</strong>,
-        and Redis keeps the whole thing ordered by score internally (implemented as a skip list, for
-        O(log n) inserts and range queries). It's the single most versatile structure in Redis —
-        leaderboards use the score as points; rate limiters and delayed job queues use it as a
-        timestamp.
+        Take everything a Set gives you — unique members, fast membership checks — and add one thing:
+        every member also carries a floating-point <strong>score</strong>, and Redis automatically
+        keeps the whole set ordered by that score at all times (implemented internally as a skip
+        list, a structure built specifically so inserting into the middle of a sorted order costs
+        <code>O(log n)</code> instead of <code>O(n)</code>). You never sort a sorted set yourself —
+        it's always already sorted, by construction, after every single write. That's the single most
+        versatile structure in Redis: a leaderboard uses the score as points; a rate limiter or
+        delayed job queue uses the exact same structure with a Unix timestamp as the score instead.
+      </p>
+      <div class="shape-diagram">
+        <div class="shape-diagram-label">Shape in memory — always kept sorted by score</div>
+        <pre><span class="k">"leaderboard"</span>  <span class="m">→</span>  score   member
+                    ─────────────
+                    1200    "carol"
+                    1500    "alice"
+                    1800    "bob"
+
+<span class="m">member = who; score = the number it's sorted by (points, a timestamp, anything orderable)</span></pre>
+      </div>
+      <p>
+        Watching how each command reads or reshuffles that ordering:
       </p>
       <div class="code-block">
         <div class="code-block-header"><span class="code-filename">redis-cli</span><button class="copy-btn">Copy</button></div>
-        <pre><code class="language-redis">ZADD leaderboard 1500 "alice" 1800 "bob" 1200 "carol"
-ZREVRANGE leaderboard 0 2 WITHSCORES   # top 3, highest score first
-ZSCORE leaderboard "alice"
-ZINCRBY leaderboard 50 "alice"          # alice's score +50
-ZRANK leaderboard "alice"               # 0-indexed rank, ascending
-ZRANGEBYSCORE leaderboard 1000 1600     # everyone scoring 1000-1600</code></pre>
+        <pre><code class="language-redis">ZADD leaderboard 1500 "alice" 1800 "bob" 1200 "carol"   # → 3 (members added)
+ZREVRANGE leaderboard 0 2 WITHSCORES   # → bob 1800, alice 1500, carol 1200 (highest first)
+ZSCORE leaderboard "alice"              # → "1500"
+ZINCRBY leaderboard 50 "alice"          # alice's score becomes 1550, returns "1550"
+ZRANK leaderboard "alice"               # → 1 (0-indexed position, ascending: carol=0, alice=1, bob=2)
+ZRANGEBYSCORE leaderboard 1000 1600     # → carol and alice — everyone scoring 1000 to 1600</code></pre>
       </div>
       <p>
         Using a Unix timestamp as the score turns a sorted set into a time-ordered index — the basis
